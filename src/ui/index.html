@@ -1,0 +1,1709 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+
+  <!-- Permite que a interface se adapte ao tamanho da janela -->
+  <meta
+    name="viewport"
+    content="width=device-width, initial-scale=1.0"
+  >
+
+  <title>Meu Terminal SSH</title>
+
+  <style>
+    /* ========================================================
+       VARIÁVEIS VISUAIS
+       ======================================================== */
+
+    :root {
+      --background: #111318;
+      --background-secondary: #191c23;
+      --background-tertiary: #222631;
+      --border: #303642;
+      --text: #f1f3f5;
+      --text-secondary: #aeb6c2;
+      --primary: #4d8dff;
+      --primary-hover: #6ca2ff;
+      --success: #36c98f;
+      --warning: #e3ad4b;
+      --danger: #e35d6a;
+      --input-background: #101217;
+    }
+
+    /* ========================================================
+       RESET BÁSICO
+       ======================================================== */
+
+    * {
+      box-sizing: border-box;
+    }
+
+    html,
+    body {
+      width: 100%;
+      height: 100%;
+      margin: 0;
+      padding: 0;
+    }
+
+    body {
+      background: var(--background);
+      color: var(--text);
+      font-family:
+        "Segoe UI",
+        Arial,
+        sans-serif;
+      font-size: 14px;
+      overflow: hidden;
+    }
+
+    button,
+    input {
+      font: inherit;
+    }
+
+    button {
+      cursor: pointer;
+    }
+
+    /* ========================================================
+       ESTRUTURA PRINCIPAL DA APLICAÇÃO
+       ======================================================== */
+
+    .app-shell {
+      display: flex;
+      width: 100vw;
+      height: 100vh;
+    }
+
+    /* ========================================================
+       BARRA LATERAL
+       ======================================================== */
+
+    .sidebar {
+      display: flex;
+      flex-direction: column;
+      width: 280px;
+      min-width: 280px;
+      background: var(--background-secondary);
+      border-right: 1px solid var(--border);
+    }
+
+    .sidebar-header {
+      padding: 22px 18px 16px;
+      border-bottom: 1px solid var(--border);
+    }
+
+    .application-title {
+      margin: 0;
+      color: var(--text);
+      font-size: 18px;
+      font-weight: 600;
+    }
+
+    .application-subtitle {
+      margin: 6px 0 18px;
+      color: var(--text-secondary);
+      font-size: 12px;
+    }
+
+    .server-list-title {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 16px 18px 8px;
+      color: var(--text-secondary);
+      font-size: 12px;
+      font-weight: 600;
+      letter-spacing: 0.5px;
+      text-transform: uppercase;
+    }
+
+    .server-list {
+      flex: 1;
+      overflow-y: auto;
+      padding: 4px 10px 16px;
+    }
+
+    .empty-server-list {
+      padding: 20px 10px;
+      color: var(--text-secondary);
+      font-size: 13px;
+      line-height: 1.5;
+      text-align: center;
+    }
+
+    .server-item {
+      display: flex;
+      align-items: center;
+      width: 100%;
+      margin-bottom: 6px;
+      padding: 11px 12px;
+      border: 1px solid transparent;
+      border-radius: 8px;
+      background: transparent;
+      color: var(--text);
+      text-align: left;
+      transition:
+        background 0.15s ease,
+        border-color 0.15s ease;
+    }
+
+    .server-item:hover {
+      background: var(--background-tertiary);
+    }
+
+    .server-item.selected {
+      background: #263b61;
+      border-color: #3e6fb8;
+    }
+
+    .server-indicator {
+      width: 8px;
+      height: 8px;
+      margin-right: 10px;
+      border-radius: 50%;
+      background: #687386;
+    }
+
+    .server-item.connected .server-indicator {
+      background: var(--success);
+      box-shadow: 0 0 8px rgba(54, 201, 143, 0.7);
+    }
+
+    .server-item-content {
+      min-width: 0;
+    }
+
+    .server-item-name {
+      display: block;
+      overflow: hidden;
+      font-weight: 600;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .server-item-details {
+      display: block;
+      margin-top: 3px;
+      overflow: hidden;
+      color: var(--text-secondary);
+      font-size: 11px;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    /* ========================================================
+       BOTÕES
+       ======================================================== */
+
+    .button {
+      min-height: 36px;
+      padding: 8px 14px;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      background: var(--background-tertiary);
+      color: var(--text);
+      transition:
+        background 0.15s ease,
+        border-color 0.15s ease,
+        opacity 0.15s ease;
+    }
+
+    .button:hover:not(:disabled) {
+      border-color: #506078;
+      background: #2b313d;
+    }
+
+    .button:disabled {
+      cursor: not-allowed;
+      opacity: 0.45;
+    }
+
+    .button-primary {
+      border-color: #3975d1;
+      background: var(--primary);
+      color: white;
+    }
+
+    .button-primary:hover:not(:disabled) {
+      border-color: #5c96f0;
+      background: var(--primary-hover);
+    }
+
+    .button-danger {
+      border-color: #853943;
+      background: #54252b;
+      color: #ffb8bf;
+    }
+
+    .button-small {
+      min-height: 30px;
+      padding: 5px 10px;
+      font-size: 12px;
+    }
+
+    .button-full {
+      width: 100%;
+    }
+
+    .button-row {
+      display: flex;
+      gap: 8px;
+      margin-top: 18px;
+    }
+
+    /* ========================================================
+       CONTEÚDO PRINCIPAL
+       ======================================================== */
+
+    .main-content {
+      flex: 1;
+      min-width: 0;
+      overflow-y: auto;
+      padding: 26px;
+      background: var(--background);
+    }
+
+    .main-header {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 20px;
+      margin-bottom: 24px;
+    }
+
+    .main-header h2 {
+      margin: 4px 0 0;
+      font-size: 24px;
+      font-weight: 600;
+    }
+
+    .eyebrow {
+      color: var(--primary-hover);
+      font-size: 11px;
+      font-weight: 600;
+      letter-spacing: 1px;
+      text-transform: uppercase;
+    }
+
+    .connection-badge {
+      display: inline-flex;
+      align-items: center;
+      min-height: 32px;
+      padding: 7px 12px;
+      border: 1px solid var(--border);
+      border-radius: 20px;
+      background: var(--background-secondary);
+      color: var(--text-secondary);
+      font-size: 12px;
+      white-space: nowrap;
+    }
+
+    .connection-badge.connected {
+      border-color: #267c5b;
+      background: #173c30;
+      color: #7ce5b8;
+    }
+
+    /* ========================================================
+       CARTÕES E GRIDS
+       ======================================================== */
+
+    .content-grid {
+      display: grid;
+      grid-template-columns: minmax(360px, 1fr) minmax(300px, 0.8fr);
+      gap: 18px;
+      margin-bottom: 18px;
+    }
+
+    .card {
+      min-width: 0;
+      padding: 20px;
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      background: var(--background-secondary);
+    }
+
+    .card h3 {
+      margin: 0 0 5px;
+      font-size: 16px;
+      font-weight: 600;
+    }
+
+    .card-description {
+      margin: 0 0 18px;
+      color: var(--text-secondary);
+      font-size: 12px;
+      line-height: 1.5;
+    }
+
+    /* ========================================================
+       FORMULÁRIO
+       ======================================================== */
+
+    .form-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 14px;
+    }
+
+    .form-group {
+      min-width: 0;
+    }
+
+    .form-group.full-width {
+      grid-column: 1 / -1;
+    }
+
+    .form-label {
+      display: block;
+      margin-bottom: 6px;
+      color: var(--text-secondary);
+      font-size: 12px;
+      font-weight: 600;
+    }
+
+    .form-input {
+      width: 100%;
+      min-height: 38px;
+      padding: 8px 10px;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      outline: none;
+      background: var(--input-background);
+      color: var(--text);
+    }
+
+    .form-input:focus {
+      border-color: var(--primary);
+      box-shadow: 0 0 0 2px rgba(77, 141, 255, 0.15);
+    }
+
+    .form-input::placeholder {
+      color: #697383;
+    }
+
+    .form-help {
+      display: block;
+      margin-top: 5px;
+      color: #788393;
+      font-size: 11px;
+      line-height: 1.4;
+    }
+
+    /* ========================================================
+       CARTÃO DE CONEXÃO
+       ======================================================== */
+
+    .selected-server-box {
+      min-height: 125px;
+      margin: 16px 0;
+      padding: 16px;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      background: var(--input-background);
+    }
+
+    .selected-server-name {
+      display: block;
+      margin-bottom: 8px;
+      font-size: 18px;
+      font-weight: 600;
+    }
+
+    .selected-server-details {
+      color: var(--text-secondary);
+      font-size: 13px;
+      line-height: 1.7;
+      white-space: pre-line;
+    }
+
+    /* ========================================================
+       TRANSFERÊNCIAS
+       ======================================================== */
+
+    .transfer-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 18px;
+    }
+
+    .transfer-block {
+      padding: 16px;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      background: var(--input-background);
+    }
+
+    .transfer-block h4 {
+      margin: 0 0 14px;
+      font-size: 14px;
+      font-weight: 600;
+    }
+
+    .progress-area {
+      margin-top: 20px;
+    }
+
+    .progress-header {
+      display: flex;
+      justify-content: space-between;
+      margin-bottom: 7px;
+      color: var(--text-secondary);
+      font-size: 12px;
+    }
+
+    progress {
+      width: 100%;
+      height: 9px;
+      overflow: hidden;
+      border: none;
+      border-radius: 10px;
+      background: #303743;
+    }
+
+    progress::-webkit-progress-bar {
+      background: #303743;
+    }
+
+    progress::-webkit-progress-value {
+      border-radius: 10px;
+      background: var(--primary);
+    }
+
+    /* ========================================================
+       ÁREA DO TERMINAL
+       ======================================================== */
+
+    .terminal-placeholder {
+      min-height: 125px;
+      margin-top: 18px;
+      padding: 18px;
+      border: 1px solid #283442;
+      border-radius: 8px;
+      background: #0c1015;
+      color: #8e9bab;
+      font-family: Consolas, "Courier New", monospace;
+      font-size: 12px;
+      line-height: 1.7;
+    }
+
+    .terminal-prompt {
+      color: #64d7a4;
+    }
+
+    /* ========================================================
+       MENSAGENS DE STATUS
+       ======================================================== */
+
+    .app-status {
+      min-height: 20px;
+      margin-top: 18px;
+      color: var(--text-secondary);
+      font-size: 13px;
+    }
+
+    .app-status.success {
+      color: var(--success);
+    }
+
+    .app-status.error {
+      color: #ff8e99;
+    }
+
+    .app-status.warning {
+      color: var(--warning);
+    }
+
+    /* ========================================================
+       ADAPTAÇÃO PARA JANELAS MENORES
+       ======================================================== */
+
+    @media (max-width: 950px) {
+      .content-grid,
+      .transfer-grid {
+        grid-template-columns: 1fr;
+      }
+
+      .sidebar {
+        width: 235px;
+        min-width: 235px;
+      }
+
+      .main-content {
+        padding: 18px;
+      }
+    }
+  </style>
+</head>
+
+<body>
+  <div class="app-shell">
+
+    <!-- ======================================================
+         BARRA LATERAL COM A LISTA DE SERVIDORES
+         ====================================================== -->
+
+    <aside class="sidebar">
+      <div class="sidebar-header">
+        <h1 class="application-title">Multi Terminal Connect</h1>
+
+        <p class="application-subtitle">
+          Conexões SSH e transferências SFTP locais
+        </p>
+
+        <button
+          id="newServerButton"
+          class="button button-primary button-full"
+          type="button"
+        >
+          + Novo servidor
+        </button>
+      </div>
+
+      <div class="server-list-title">
+        <span>Servidores</span>
+        <span id="serverCount">0</span>
+      </div>
+
+      <div
+        id="serverList"
+        class="server-list"
+      ></div>
+    </aside>
+
+    <!-- ======================================================
+         CONTEÚDO PRINCIPAL
+         ====================================================== -->
+
+    <main class="main-content">
+
+      <header class="main-header">
+        <div>
+          <div class="eyebrow">Aplicação local</div>
+          <h2>Gerenciamento de servidores</h2>
+        </div>
+
+        <div
+          id="connectionBadge"
+          class="connection-badge"
+        >
+          Desconectado
+        </div>
+      </header>
+
+      <section class="content-grid">
+
+        <!-- ==================================================
+             FORMULÁRIO DE CADASTRO
+             ================================================== -->
+
+        <section class="card">
+          <h3>Cadastro do servidor</h3>
+
+          <p class="card-description">
+            Informe os dados de acesso. A porta é obrigatória e será
+            gravada junto com os demais dados do servidor.
+          </p>
+
+          <form id="serverForm">
+
+            <!-- ID oculto. É usado para editar um servidor existente. -->
+            <input
+              id="serverId"
+              type="hidden"
+            >
+
+            <div class="form-grid">
+
+              <div class="form-group">
+                <label
+                  class="form-label"
+                  for="serverName"
+                >
+                  Nome
+                </label>
+
+                <input
+                  id="serverName"
+                  class="form-input"
+                  type="text"
+                  placeholder="Servidor principal"
+                  required
+                >
+              </div>
+
+              <div class="form-group">
+                <label
+                  class="form-label"
+                  for="serverHost"
+                >
+                  Host ou IP
+                </label>
+
+                <input
+                  id="serverHost"
+                  class="form-input"
+                  type="text"
+                  placeholder="192.168.1.100"
+                  required
+                >
+              </div>
+
+              <div class="form-group">
+                <label
+                  class="form-label"
+                  for="serverPort"
+                >
+                  Porta SSH
+                </label>
+
+                <input
+                  id="serverPort"
+                  class="form-input"
+                  type="number"
+                  min="1"
+                  max="65535"
+                  step="1"
+                  placeholder="Ex.: 43333"
+                  required
+                >
+
+                <small class="form-help">
+                  Informe a porta personalizada usada pelo servidor.
+                </small>
+              </div>
+
+              <div class="form-group">
+                <label
+                  class="form-label"
+                  for="serverUsername"
+                >
+                  Usuário
+                </label>
+
+                <input
+                  id="serverUsername"
+                  class="form-input"
+                  type="text"
+                  placeholder="ubuntu"
+                  required
+                >
+              </div>
+
+              <div class="form-group full-width">
+                <label
+                  class="form-label"
+                  for="serverKeyPath"
+                >
+                  Caminho da chave privada
+                </label>
+
+                <input
+                  id="serverKeyPath"
+                  class="form-input"
+                  type="text"
+                  placeholder="C:\Users\Wallace\.ssh\id_ed25519"
+                  required
+                >
+
+                <small class="form-help">
+                  O arquivo da chave permanece na sua máquina.
+                  Apenas o caminho será salvo.
+                </small>
+              </div>
+
+              <div class="form-group full-width">
+                <label
+                  class="form-label"
+                  for="serverRemotePath"
+                >
+                  Pasta remota inicial
+                </label>
+
+                <input
+                  id="serverRemotePath"
+                  class="form-input"
+                  type="text"
+                  value="/"
+                  placeholder="/home/usuario"
+                >
+              </div>
+
+            </div>
+
+            <div class="button-row">
+              <button
+                class="button button-primary"
+                type="submit"
+              >
+                Salvar servidor
+              </button>
+
+              <button
+                id="clearFormButton"
+                class="button"
+                type="button"
+              >
+                Limpar
+              </button>
+            </div>
+          </form>
+        </section>
+
+        <!-- ==================================================
+             CARTÃO DE CONEXÃO
+             ================================================== -->
+
+        <section class="card">
+          <h3>Conexão SFTP</h3>
+
+          <p class="card-description">
+            Selecione um servidor na barra lateral e conecte-se
+            usando os dados cadastrados.
+          </p>
+
+          <div class="selected-server-box">
+            <span
+              id="selectedServerName"
+              class="selected-server-name"
+            >
+              Nenhum servidor selecionado
+            </span>
+
+            <div
+              id="selectedServerDetails"
+              class="selected-server-details"
+            >
+              Escolha um servidor para visualizar os detalhes.
+            </div>
+          </div>
+
+          <div class="button-row">
+            <button
+              id="connectButton"
+              class="button button-primary"
+              type="button"
+              disabled
+            >
+              Conectar SFTP
+            </button>
+
+            <button
+              id="disconnectButton"
+              class="button button-danger"
+              type="button"
+              disabled
+            >
+              Desconectar
+            </button>
+          </div>
+        </section>
+      </section>
+
+      <!-- ====================================================
+           PAINEL DE UPLOAD E DOWNLOAD
+           ==================================================== -->
+
+      <section class="card">
+        <h3>Transferência de arquivos</h3>
+
+        <p class="card-description">
+          A conexão precisa estar ativa antes de iniciar um upload
+          ou download.
+        </p>
+
+        <div class="transfer-grid">
+
+          <!-- UPLOAD -->
+          <div class="transfer-block">
+            <h4>Upload — computador para servidor</h4>
+
+            <div class="form-group">
+              <label
+                class="form-label"
+                for="uploadLocalPath"
+              >
+                Caminho local do arquivo
+              </label>
+
+              <input
+                id="uploadLocalPath"
+                class="form-input"
+                type="text"
+                placeholder="C:\Fotos\imagem.png"
+              >
+            </div>
+
+            <div class="form-group" style="margin-top: 12px;">
+              <label
+                class="form-label"
+                for="uploadRemotePath"
+              >
+                Caminho remoto de destino
+              </label>
+
+              <input
+                id="uploadRemotePath"
+                class="form-input"
+                type="text"
+                placeholder="/home/usuario/imagem.png"
+              >
+            </div>
+
+            <div class="button-row">
+              <button
+                id="uploadButton"
+                class="button button-primary"
+                type="button"
+                disabled
+              >
+                Enviar arquivo
+              </button>
+            </div>
+          </div>
+
+          <!-- DOWNLOAD -->
+          <div class="transfer-block">
+            <h4>Download — servidor para computador</h4>
+
+            <div class="form-group">
+              <label
+                class="form-label"
+                for="downloadRemotePath"
+              >
+                Caminho remoto do arquivo
+              </label>
+
+              <input
+                id="downloadRemotePath"
+                class="form-input"
+                type="text"
+                placeholder="/home/usuario/resultado.txt"
+              >
+            </div>
+
+            <div class="form-group" style="margin-top: 12px;">
+              <label
+                class="form-label"
+                for="downloadLocalPath"
+              >
+                Caminho local de destino
+              </label>
+
+              <input
+                id="downloadLocalPath"
+                class="form-input"
+                type="text"
+                placeholder="C:\Downloads\resultado.txt"
+              >
+            </div>
+
+            <div class="button-row">
+              <button
+                id="downloadButton"
+                class="button button-primary"
+                type="button"
+                disabled
+              >
+                Baixar arquivo
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <!-- BARRA DE PROGRESSO -->
+        <div class="progress-area">
+          <div class="progress-header">
+            <span id="progressMessage">
+              Nenhuma transferência em andamento
+            </span>
+
+            <span id="progressPercent">0%</span>
+          </div>
+
+          <progress
+            id="transferProgress"
+            value="0"
+            max="100"
+          >
+            0%
+          </progress>
+        </div>
+      </section>
+
+      <!-- ====================================================
+           ÁREA RESERVADA PARA O TERMINAL SSH
+           ==================================================== -->
+
+      <section class="card">
+        <h3>Terminal</h3>
+
+        <div class="terminal-placeholder">
+          <div>
+            <span class="terminal-prompt">$</span>
+            Área do terminal SSH interativo
+          </div>
+
+          <div>
+            Nesta etapa, a conexão SFTP e as transferências estão
+            sendo preparadas. O terminal interativo será conectado
+            em uma próxima etapa.
+          </div>
+        </div>
+      </section>
+
+      <!-- MENSAGEM GERAL DA APLICAÇÃO -->
+      <div
+        id="appStatus"
+        class="app-status"
+        role="status"
+        aria-live="polite"
+      >
+        Aplicação pronta.
+      </div>
+    </main>
+  </div>
+
+  <script>
+    'use strict';
+
+    // ========================================================
+    // REFERÊNCIA À API EXPOSTA PELO preload.js
+    // ========================================================
+
+    /*
+      O preload.js criou window.api usando contextBridge.
+
+      A interface não acessa diretamente:
+      - fs;
+      - ssh2;
+      - ssh2-sftp-client;
+      - ipcMain.
+
+      Ela utiliza somente as funções liberadas em window.api.
+    */
+    const api = window.api;
+
+    // ========================================================
+    // REFERÊNCIAS DOS ELEMENTOS DA INTERFACE
+    // ========================================================
+
+    const elements = {
+      serverForm: document.getElementById('serverForm'),
+      serverId: document.getElementById('serverId'),
+      serverName: document.getElementById('serverName'),
+      serverHost: document.getElementById('serverHost'),
+      serverPort: document.getElementById('serverPort'),
+      serverUsername: document.getElementById('serverUsername'),
+      serverKeyPath: document.getElementById('serverKeyPath'),
+      serverRemotePath: document.getElementById('serverRemotePath'),
+
+      newServerButton: document.getElementById('newServerButton'),
+      clearFormButton: document.getElementById('clearFormButton'),
+
+      serverList: document.getElementById('serverList'),
+      serverCount: document.getElementById('serverCount'),
+
+      selectedServerName: document.getElementById(
+        'selectedServerName'
+      ),
+
+      selectedServerDetails: document.getElementById(
+        'selectedServerDetails'
+      ),
+
+      connectButton: document.getElementById('connectButton'),
+      disconnectButton: document.getElementById(
+        'disconnectButton'
+      ),
+
+      connectionBadge: document.getElementById(
+        'connectionBadge'
+      ),
+
+      uploadLocalPath: document.getElementById(
+        'uploadLocalPath'
+      ),
+
+      uploadRemotePath: document.getElementById(
+        'uploadRemotePath'
+      ),
+
+      uploadButton: document.getElementById('uploadButton'),
+
+      downloadRemotePath: document.getElementById(
+        'downloadRemotePath'
+      ),
+
+      downloadLocalPath: document.getElementById(
+        'downloadLocalPath'
+      ),
+
+      downloadButton: document.getElementById(
+        'downloadButton'
+      ),
+
+      transferProgress: document.getElementById(
+        'transferProgress'
+      ),
+
+      progressMessage: document.getElementById(
+        'progressMessage'
+      ),
+
+      progressPercent: document.getElementById(
+        'progressPercent'
+      ),
+
+      appStatus: document.getElementById('appStatus'),
+    };
+
+    // ========================================================
+    // ESTADO TEMPORÁRIO DA INTERFACE
+    // ========================================================
+
+    // Lista carregada do servers.json.
+    let servers = [];
+
+    // Servidor atualmente selecionado na barra lateral.
+    let selectedServer = null;
+
+    // ID do servidor cuja conexão SFTP está ativa.
+    let connectedServerId = null;
+
+    // ========================================================
+    // FUNÇÕES AUXILIARES
+    // ========================================================
+
+    /**
+     * Obtém uma mensagem legível de um erro.
+     */
+    function getErrorMessage(error) {
+      if (!error) {
+        return 'Ocorreu um erro desconhecido.';
+      }
+
+      if (typeof error.message === 'string') {
+        return error.message;
+      }
+
+      return String(error);
+    }
+
+    /**
+     * Exibe uma mensagem na parte inferior da aplicação.
+     *
+     * type pode ser:
+     * - info
+     * - success
+     * - warning
+     * - error
+     */
+    function showStatus(message, type = 'info') {
+      elements.appStatus.textContent = message;
+      elements.appStatus.className = `app-status ${type}`;
+    }
+
+    /**
+     * Atualiza o indicador visual da conexão.
+     */
+    function updateConnectionVisual() {
+      const isConnected = connectedServerId !== null;
+
+      if (isConnected) {
+        elements.connectionBadge.textContent = 'Conectado';
+        elements.connectionBadge.className =
+          'connection-badge connected';
+      } else {
+        elements.connectionBadge.textContent = 'Desconectado';
+        elements.connectionBadge.className =
+          'connection-badge';
+      }
+
+      elements.connectButton.disabled =
+        !selectedServer || isConnected;
+
+      elements.disconnectButton.disabled =
+        !selectedServer || !isConnected;
+
+      elements.uploadButton.disabled = !isConnected;
+      elements.downloadButton.disabled = !isConnected;
+
+      renderServerList();
+    }
+
+    /**
+     * Limpa o formulário para cadastrar um servidor novo.
+     */
+    function clearServerForm() {
+      elements.serverId.value = '';
+      elements.serverName.value = '';
+      elements.serverHost.value = '';
+      elements.serverPort.value = '';
+      elements.serverUsername.value = '';
+      elements.serverKeyPath.value = '';
+      elements.serverRemotePath.value = '/';
+
+      elements.selectedServerName.textContent =
+        'Nenhum servidor selecionado';
+
+      elements.selectedServerDetails.textContent =
+        'Preencha o formulário para cadastrar um novo servidor.';
+
+      selectedServer = null;
+
+      updateConnectionVisual();
+    }
+
+    /**
+     * Preenche o formulário com os dados do servidor selecionado.
+     */
+    function fillServerForm(server) {
+      elements.serverId.value = server.id || '';
+      elements.serverName.value = server.name || '';
+      elements.serverHost.value = server.host || '';
+      elements.serverPort.value = server.port || '';
+      elements.serverUsername.value = server.username || '';
+      elements.serverKeyPath.value = server.keyPath || '';
+      elements.serverRemotePath.value =
+        server.remotePath || '/';
+    }
+
+    /**
+     * Atualiza o cartão que mostra o servidor selecionado.
+     */
+    function updateSelectedServerCard() {
+      if (!selectedServer) {
+        elements.selectedServerName.textContent =
+          'Nenhum servidor selecionado';
+
+        elements.selectedServerDetails.textContent =
+          'Escolha um servidor na barra lateral.';
+
+        return;
+      }
+
+      elements.selectedServerName.textContent =
+        selectedServer.name;
+
+      elements.selectedServerDetails.textContent =
+        `Host: ${selectedServer.host}\n` +
+        `Porta: ${selectedServer.port}\n` +
+        `Usuário: ${selectedServer.username}\n` +
+        `Pasta remota: ${selectedServer.remotePath || '/'}`;
+    }
+
+    /**
+     * Seleciona um servidor pelo ID.
+     */
+    function selectServer(serverId) {
+      const server = servers.find(
+        (item) => item.id === serverId
+      );
+
+      if (!server) {
+        return;
+      }
+
+      selectedServer = server;
+
+      fillServerForm(server);
+      updateSelectedServerCard();
+      updateConnectionVisual();
+
+      showStatus(
+        `Servidor "${server.name}" selecionado.`,
+        'info'
+      );
+    }
+
+    /**
+     * Desenha novamente a lista de servidores na barra lateral.
+     */
+    function renderServerList() {
+      elements.serverList.innerHTML = '';
+      elements.serverCount.textContent = String(
+        servers.length
+      );
+
+      if (servers.length === 0) {
+        const emptyMessage = document.createElement('div');
+
+        emptyMessage.className = 'empty-server-list';
+        emptyMessage.textContent =
+          'Nenhum servidor cadastrado ainda.';
+
+        elements.serverList.appendChild(emptyMessage);
+        return;
+      }
+
+      for (const server of servers) {
+        const serverButton = document.createElement('button');
+
+        serverButton.type = 'button';
+        serverButton.className = 'server-item';
+
+        if (
+          selectedServer &&
+          selectedServer.id === server.id
+        ) {
+          serverButton.classList.add('selected');
+        }
+
+        if (connectedServerId === server.id) {
+          serverButton.classList.add('connected');
+        }
+
+        const indicator = document.createElement('span');
+        indicator.className = 'server-indicator';
+
+        const content = document.createElement('span');
+        content.className = 'server-item-content';
+
+        const name = document.createElement('span');
+        name.className = 'server-item-name';
+        name.textContent = server.name;
+
+        const details = document.createElement('span');
+        details.className = 'server-item-details';
+        details.textContent =
+          `${server.username}@${server.host}:${server.port}`;
+
+        content.appendChild(name);
+        content.appendChild(details);
+
+        serverButton.appendChild(indicator);
+        serverButton.appendChild(content);
+
+        serverButton.addEventListener('click', () => {
+          selectServer(server.id);
+        });
+
+        elements.serverList.appendChild(serverButton);
+      }
+    }
+
+    /**
+     * Carrega os servidores salvos pelo main.js.
+     */
+    async function loadServers() {
+      try {
+        servers = await api.listServers();
+
+        renderServerList();
+
+        if (servers.length > 0) {
+          selectServer(servers[0].id);
+        } else {
+          clearServerForm();
+        }
+
+        showStatus(
+          `${servers.length} servidor(es) carregado(s).`,
+          'success'
+        );
+      } catch (error) {
+        showStatus(
+          `Erro ao carregar servidores: ${getErrorMessage(error)}`,
+          'error'
+        );
+      }
+    }
+
+    /**
+     * Lê os valores atuais do formulário.
+     *
+     * A porta é enviada inicialmente como texto, mas será
+     * convertida e validada pelo serverStore.js.
+     */
+    function getServerDataFromForm() {
+      return {
+        id: elements.serverId.value.trim() || undefined,
+        name: elements.serverName.value.trim(),
+        host: elements.serverHost.value.trim(),
+        port: elements.serverPort.value,
+        username: elements.serverUsername.value.trim(),
+        keyPath: elements.serverKeyPath.value.trim(),
+        remotePath:
+          elements.serverRemotePath.value.trim() || '/',
+      };
+    }
+
+    /**
+     * Salva um servidor novo ou atualiza um servidor existente.
+     */
+    async function saveCurrentServer(event) {
+      event.preventDefault();
+
+      try {
+        const serverData = getServerDataFromForm();
+
+        const savedServer = await api.saveServer(
+          serverData
+        );
+
+        // Recarrega a lista para garantir que a interface
+        // esteja igual ao conteúdo do servers.json.
+        servers = await api.listServers();
+
+        selectedServer = servers.find(
+          (server) => server.id === savedServer.id
+        );
+
+        renderServerList();
+        fillServerForm(selectedServer);
+        updateSelectedServerCard();
+        updateConnectionVisual();
+
+        showStatus(
+          `Servidor "${savedServer.name}" salvo com sucesso.`,
+          'success'
+        );
+      } catch (error) {
+        showStatus(
+          `Erro ao salvar servidor: ${getErrorMessage(error)}`,
+          'error'
+        );
+      }
+    }
+
+    /**
+     * Verifica se há um servidor selecionado e conectado.
+     */
+    function getConnectedServer() {
+      if (!selectedServer) {
+        throw new Error(
+          'Selecione um servidor antes de continuar.'
+        );
+      }
+
+      if (connectedServerId !== selectedServer.id) {
+        throw new Error(
+          'Conecte-se ao servidor antes de transferir arquivos.'
+        );
+      }
+
+      return selectedServer;
+    }
+
+    /**
+     * Abre uma conexão SFTP com o servidor selecionado.
+     */
+    async function connectSelectedServer() {
+      if (!selectedServer) {
+        showStatus(
+          'Selecione um servidor antes de conectar.',
+          'warning'
+        );
+
+        return;
+      }
+
+      try {
+        showStatus(
+          `Conectando a ${selectedServer.host}:${selectedServer.port}...`,
+          'info'
+        );
+
+        const result = await api.connectSftp(
+          selectedServer
+        );
+
+        if (!result || !result.success) {
+          throw new Error(
+            result?.error || 'Não foi possível conectar.'
+          );
+        }
+
+        connectedServerId = selectedServer.id;
+
+        updateConnectionVisual();
+
+        showStatus(
+          `Conectado a ${selectedServer.host} na porta ${selectedServer.port}.`,
+          'success'
+        );
+      } catch (error) {
+        connectedServerId = null;
+        updateConnectionVisual();
+
+        showStatus(
+          `Erro na conexão: ${getErrorMessage(error)}`,
+          'error'
+        );
+      }
+    }
+
+    /**
+     * Encerra a conexão SFTP ativa.
+     */
+    async function disconnectSelectedServer() {
+      if (!selectedServer) {
+        return;
+      }
+
+      try {
+        const result = await api.disconnectSftp(
+          selectedServer.host
+        );
+
+        if (result && result.success === false) {
+          throw new Error(
+            result.error || 'Erro ao desconectar.'
+          );
+        }
+
+        connectedServerId = null;
+        updateConnectionVisual();
+
+        showStatus(
+          `Desconectado de "${selectedServer.name}".`,
+          'success'
+        );
+      } catch (error) {
+        showStatus(
+          `Erro ao desconectar: ${getErrorMessage(error)}`,
+          'error'
+        );
+      }
+    }
+
+    /**
+     * Envia um arquivo para o servidor remoto.
+     */
+    async function uploadSelectedFile() {
+      try {
+        const server = getConnectedServer();
+
+        const localPath =
+          elements.uploadLocalPath.value.trim();
+
+        const remotePath =
+          elements.uploadRemotePath.value.trim();
+
+        if (!localPath || !remotePath) {
+          throw new Error(
+            'Informe o caminho local e o caminho remoto do upload.'
+          );
+        }
+
+        resetProgress(
+          'Iniciando upload...',
+          0
+        );
+
+        const result = await api.uploadFile(
+          server.host,
+          localPath,
+          remotePath
+        );
+
+        if (!result || !result.success) {
+          throw new Error(
+            result?.error || 'O upload não foi concluído.'
+          );
+        }
+
+        showStatus(
+          'Upload concluído com sucesso.',
+          'success'
+        );
+      } catch (error) {
+        showStatus(
+          `Erro no upload: ${getErrorMessage(error)}`,
+          'error'
+        );
+      }
+    }
+
+    /**
+     * Baixa um arquivo do servidor para o computador.
+     */
+    async function downloadSelectedFile() {
+      try {
+        const server = getConnectedServer();
+
+        const remotePath =
+          elements.downloadRemotePath.value.trim();
+
+        const localPath =
+          elements.downloadLocalPath.value.trim();
+
+        if (!remotePath || !localPath) {
+          throw new Error(
+            'Informe o caminho remoto e o caminho local do download.'
+          );
+        }
+
+        resetProgress(
+          'Iniciando download...',
+          0
+        );
+
+        const result = await api.downloadFile(
+          server.host,
+          remotePath,
+          localPath
+        );
+
+        if (!result || !result.success) {
+          throw new Error(
+            result?.error || 'O download não foi concluído.'
+          );
+        }
+
+        showStatus(
+          'Download concluído com sucesso.',
+          'success'
+        );
+      } catch (error) {
+        showStatus(
+          `Erro no download: ${getErrorMessage(error)}`,
+          'error'
+        );
+      }
+    }
+
+    /**
+     * Atualiza a barra de progresso.
+     */
+    function updateProgress(data) {
+      if (!data) {
+        return;
+      }
+
+      const percent = Math.max(
+        0,
+        Math.min(100, Number(data.percent) || 0)
+      );
+
+      const operation =
+        data.type === 'download'
+          ? 'Download'
+          : 'Upload';
+
+      elements.transferProgress.value = percent;
+      elements.progressPercent.textContent =
+        `${percent}%`;
+
+      elements.progressMessage.textContent =
+        `${operation} em andamento...`;
+    }
+
+    /**
+     * Reinicia a barra de progresso.
+     */
+    function resetProgress(message, percent = 0) {
+      elements.transferProgress.value = percent;
+      elements.progressPercent.textContent =
+        `${percent}%`;
+      elements.progressMessage.textContent = message;
+    }
+
+    /**
+     * Trata o evento enviado pelo main.js ao terminar
+     * uma transferência.
+     */
+    function handleTransferDone(data) {
+      if (!data) {
+        return;
+      }
+
+      const operation =
+        data.type === 'download'
+          ? 'Download'
+          : 'Upload';
+
+      elements.transferProgress.value = 100;
+      elements.progressPercent.textContent = '100%';
+      elements.progressMessage.textContent =
+        `${operation} concluído.`;
+    }
+
+    // ========================================================
+    // EVENTOS DOS BOTÕES E DO FORMULÁRIO
+    // ========================================================
+
+    elements.serverForm.addEventListener(
+      'submit',
+      saveCurrentServer
+    );
+
+    elements.newServerButton.addEventListener(
+      'click',
+      () => {
+        selectedServer = null;
+        clearServerForm();
+
+        showStatus(
+          'Preencha os dados do novo servidor.',
+          'info'
+        );
+      }
+    );
+
+    elements.clearFormButton.addEventListener(
+      'click',
+      () => {
+        selectedServer = null;
+        clearServerForm();
+
+        showStatus(
+          'Formulário limpo.',
+          'info'
+        );
+      }
+    );
+
+    elements.connectButton.addEventListener(
+      'click',
+      connectSelectedServer
+    );
+
+    elements.disconnectButton.addEventListener(
+      'click',
+      disconnectSelectedServer
+    );
+
+    elements.uploadButton.addEventListener(
+      'click',
+      uploadSelectedFile
+    );
+
+    elements.downloadButton.addEventListener(
+      'click',
+      downloadSelectedFile
+    );
+
+    // ========================================================
+    // EVENTOS DE PROGRESSO VINDOS DO preload.js
+    // ========================================================
+
+	if (!api) {
+	  console.error(
+		'[ERRO] window.api não foi encontrada. Verifique o preload.js.'
+	  );
+
+	  showStatus(
+		'A API do preload.js não foi encontrada.',
+		'error'
+	  );
+	} else {
+	  console.log('[OK] window.api carregada corretamente.');
+
+	  api.onSftpProgress((data) => {
+		updateProgress(data);
+	  });
+
+	  api.onSftpDone((data) => {
+		handleTransferDone(data);
+	  });
+
+	  loadServers();
+	}
+  </script>
+</body>
+</html>

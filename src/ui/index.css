@@ -1,0 +1,336 @@
+/* Design System: meu-terminal-ssh */
+:root {
+  --bg-primary: #0a0e17;
+  --bg-secondary: #121824;
+  --bg-tertiary: #1a2234;
+  --bg-glass: rgba(18, 24, 36, 0.7);
+  --border-glass: rgba(255, 255, 255, 0.08);
+  
+  --text-primary: #f3f4f6;
+  --text-secondary: #9ca3af;
+  --text-muted: #6b7280;
+  
+  --accent-color: #6366f1; /* Indigo */
+  --accent-hover: #4f46e5;
+  --accent-light: rgba(99, 102, 241, 0.15);
+  
+  --success: #10b981;
+  --warning: #f59e0b;
+  --danger: #ef4444;
+  
+  --font-sans: 'Inter', sans-serif;
+  --font-mono: 'JetBrains Mono', monospace;
+  
+  --shadow-lg: 0 10px 25px -5px rgba(0, 0, 0, 0.3), 0 8px 10px -6px rgba(0, 0, 0, 0.3);
+  --transition-smooth: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+  scrollbar-width: thin;
+  scrollbar-color: var(--bg-tertiary) transparent;
+}
+
+/* Scrollbars customizados */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: var(--bg-tertiary);
+  border-radius: 3px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: var(--accent-color);
+}
+
+body {
+  font-family: var(--font-sans);
+  background-color: var(--bg-primary);
+  color: var(--text-primary);
+  overflow: hidden;
+  height: 100vh;
+  -webkit-font-smoothing: antialiased;
+}
+
+#root {
+  height: 100vh;
+  display: flex;
+  flex-direction: row;
+}
+
+/* Utilitários e Layout Principal */
+.app-container {
+  display: flex;
+  width: 100%;
+  height: 100%;
+}
+
+.main-content {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  background-color: var(--bg-primary);
+  height: 100%;
+  overflow: hidden;
+  position: relative;
+}
+
+/* Efeito de Vidro */
+.glass-panel {
+  background: var(--bg-glass);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid var(--border-glass);
+}
+
+/* Modais, Inputs e Botões Premium */
+input, select, textarea {
+  width: 100%;
+  min-width: 0;
+  background-color: var(--bg-tertiary);
+  border: 1px solid var(--border-glass);
+  color: var(--text-primary);
+  padding: 0.65rem 0.9rem;
+  border-radius: 6px;
+  font-family: var(--font-sans);
+  font-size: 0.875rem;
+  outline: none;
+  transition: var(--transition-smooth);
+}
+
+input:focus, select:focus, textarea:focus {
+  border-color: var(--accent-color);
+  box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.25);
+}
+
+button {
+  font-family: var(--font-sans);
+  font-weight: 500;
+  font-size: 0.875rem;
+  padding: 0.65rem 1rem;
+  border-radius: 6px;
+  border: none;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  transition: var(--transition-smooth);
+}
+
+.btn-primary {
+  background-color: var(--accent-color);
+  color: #ffffff;
+}
+
+.btn-primary:hover {
+  background-color: var(--accent-hover);
+  transform: translateY(-1px);
+}
+
+.btn-secondary {
+  background-color: var(--bg-tertiary);
+  color: var(--text-primary);
+  border: 1px solid var(--border-glass);
+}
+
+.btn-secondary:hover {
+  background-color: rgba(255, 255, 255, 0.05);
+}
+
+/* Aba/Tabs Control */
+.tabs-header {
+  display: flex;
+  background-color: var(--bg-secondary);
+  border-bottom: 1px solid var(--border-glass);
+  padding: 0.5rem 1rem 0 1rem;
+  gap: 0.5rem;
+}
+
+.tab-btn {
+  background: transparent;
+  border: none;
+  border-radius: 6px 6px 0 0;
+  color: var(--text-secondary);
+  padding: 0.5rem 1.25rem;
+  font-size: 0.875rem;
+  position: relative;
+  transition: var(--transition-smooth);
+}
+
+.tab-btn:hover {
+  color: var(--text-primary);
+  background-color: rgba(255, 255, 255, 0.03);
+}
+
+.tab-btn.active {
+  color: var(--accent-color);
+  background-color: var(--bg-primary);
+  border: 1px solid var(--border-glass);
+  border-bottom: 1px solid var(--bg-primary);
+  font-weight: 600;
+}
+
+.tab-btn.active::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 2px;
+  background-color: var(--accent-color);
+  border-radius: 6px 6px 0 0;
+}
+
+.tab-content {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+/* Animações simples */
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.animate-fade-in {
+  animation: fadeIn 0.2s ease-out forwards;
+}
+
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+.spin,
+.animate-spin {
+  animation: spin 1s linear infinite;
+}
+
+/* Botões de Comandos/Scripts na toolbar do terminal */
+.terminal-toolbar-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  background-color: var(--bg-tertiary);
+  border: 1px solid var(--border-glass);
+  color: var(--text-secondary);
+  padding: 0.3rem 0.55rem;
+  border-radius: 6px;
+  font-size: 0.72rem;
+  cursor: pointer;
+  transition: var(--transition-smooth);
+}
+
+.terminal-toolbar-btn:hover {
+  color: var(--text-primary);
+  border-color: var(--accent-color);
+  background-color: rgba(99, 102, 241, 0.1);
+}
+
+/* Linhas da biblioteca de comandos (modal de busca) */
+.library-row:hover {
+  background-color: rgba(99, 102, 241, 0.08);
+}
+
+/* Botão de alternar direção do layout de terminais */
+.terminal-layout-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  background-color: var(--bg-tertiary);
+  border: 1px solid var(--border-glass);
+  color: var(--text-secondary);
+  padding: 0.3rem 0.65rem;
+  border-radius: 6px;
+  font-size: 0.75rem;
+  cursor: pointer;
+  transition: var(--transition-smooth);
+}
+
+.terminal-layout-btn:hover {
+  color: var(--text-primary);
+  border-color: var(--accent-color);
+}
+
+/* Botão "Novo Servidor" — precisa se ler claramente como botão */
+.sidebar-primary-btn {
+  background-color: var(--accent-color);
+  border: 1px solid var(--accent-hover);
+  color: #ffffff;
+  padding: 0.4rem 0.65rem;
+  border-radius: 6px;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  cursor: pointer;
+  transition: var(--transition-smooth);
+}
+
+.sidebar-primary-btn:hover {
+  background-color: var(--accent-hover);
+  transform: translateY(-1px);
+  box-shadow: 0 4px 10px rgba(99, 102, 241, 0.35);
+}
+
+/* Botão de recolher/expandir a barra lateral */
+.sidebar-collapse-btn:hover {
+  background-color: rgba(99, 102, 241, 0.15);
+  border-color: var(--accent-color);
+  color: var(--accent-color);
+}
+
+/* Botões de Ação na Sidebar */
+.sidebar-action-btn {
+  background: transparent;
+  border: none;
+  color: var(--text-secondary);
+  padding: 4px;
+  border-radius: 4px;
+  cursor: pointer;
+  opacity: 0.6;
+  transition: var(--transition-smooth);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.sidebar-action-btn:hover {
+  opacity: 1;
+  background-color: rgba(255, 255, 255, 0.08);
+  color: var(--text-primary);
+}
+
+.sidebar-action-btn.delete:hover {
+  color: var(--danger);
+  background-color: rgba(239, 68, 68, 0.15);
+}
+
+/* Botão Redondo Vermelho de Fechar Terminal */
+.terminal-close-btn {
+  background: rgba(239, 68, 68, 0.15);
+  border: 1px solid rgba(239, 68, 68, 0.25);
+  color: var(--danger);
+  padding: 4px;
+  border-radius: 50%;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  margin-left: 8px;
+  transition: var(--transition-smooth);
+}
+
+.terminal-close-btn:hover {
+  background: var(--danger);
+  color: #ffffff;
+  transform: scale(1.05);
+}

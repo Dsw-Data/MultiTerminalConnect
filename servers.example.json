@@ -1,0 +1,20 @@
+[
+  {
+    "id": "exemplo-1",
+    "name": "Servidor de Produção",
+    "host": "203.0.113.10",
+    "port": 22,
+    "username": "ubuntu",
+    "keyPath": "C:\\Users\\SeuUsuario\\.ssh\\id_ed25519",
+    "remotePath": "/home/ubuntu"
+  },
+  {
+    "id": "exemplo-2",
+    "name": "VPS Secundária",
+    "host": "203.0.113.20",
+    "port": 22,
+    "username": "admin",
+    "keyPath": "C:\\Users\\SeuUsuario\\.ssh\\id_ed25519",
+    "remotePath": "/var/www"
+  }
+]

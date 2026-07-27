@@ -1,0 +1,22 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <!--
+      CSP restritiva: só permite scripts/estilos do próprio pacote
+      (dist/) e bloqueia qualquer conexão de rede a partir do
+      renderer. Camada extra de defesa caso algum conteúdo externo
+      acabe injetado na página (ex.: dependência comprometida).
+    -->
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none';"
+    />
+    <title>Multi Terminal Connect</title>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/ui/main.jsx"></script>
+  </body>
+</html>

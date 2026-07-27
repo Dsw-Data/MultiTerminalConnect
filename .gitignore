@@ -1,0 +1,22 @@
+# Dependências e build (gerados — não se versionam)
+node_modules/
+dist/
+
+# Dados pessoais de infraestrutura — NUNCA versionar:
+# contêm IPs reais, portas, usuários e caminhos de chave.
+servers.json
+scripts.json
+
+# Logs locais (registram host/porta/usuário de cada conexão)
+*.log
+
+# Documento interno de acompanhamento do projeto
+# (cita nomes de servidores reais e caminhos pessoais)
+history.md
+
+# Artefatos de SO/editor
+Thumbs.db
+Desktop.ini
+.DS_Store
+.vscode/
+.idea/
