@@ -35,6 +35,15 @@ contextBridge.exposeInMainWorld('api', {
   deleteServer: (id) => ipcRenderer.invoke('servers:delete', id),
 
   // ----------------------------------------------------------
+  // HOST KEYS (verificação de identidade dos servidores)
+  // ----------------------------------------------------------
+  hostkeys: {
+    // Esquece o registro salvo de um servidor — usado quando o usuário
+    // confia conscientemente numa chave nova após aviso de mudança.
+    forget: (host, port) => ipcRenderer.invoke('hostkeys:forget', { host, port }),
+  },
+
+  // ----------------------------------------------------------
   // JANELA (tela cheia real do sistema operacional)
   // ----------------------------------------------------------
   window: {

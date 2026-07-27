@@ -33,7 +33,7 @@ class SftpHelper extends EventEmitter {
     //
     // server = { host, port, username, keyPath, passphrase? }
     // ----------------------------------------------------------
-    async connect(server) {
+    async connect(server, hostVerifier) {
         if (!server || typeof server !== 'object') {
             throw new Error('Dados do servidor inválidos.');
         }
@@ -46,17 +46,24 @@ class SftpHelper extends EventEmitter {
             throw new Error('Usuário do servidor inválido.');
         }
 
-        if (typeof server.keyPath !== 'string' || server.keyPath.trim() === '') {
-            throw new Error('Informe o caminho da chave privada para conectar via SFTP.');
+        const hasKeyPath = typeof server.keyPath === 'string' && server.keyPath.trim() !== '';
+        const hasPassword = typeof server.password === 'string' && server.password !== '';
+
+        if (!hasKeyPath && !hasPassword) {
+            throw new Error(
+                'Configure uma chave privada ou informe a senha (editando o servidor) para conectar via SFTP.'
+            );
         }
 
         // Lê a chave privada do caminho informado (nunca gravamos
         // o conteúdo da chave no servers.json, só o caminho).
         let privateKey;
-        try {
-            privateKey = await fs.readFile(server.keyPath);
-        } catch {
-            throw new Error('Não foi possível ler o arquivo da chave privada informada.');
+        if (hasKeyPath) {
+            try {
+                privateKey = await fs.readFile(server.keyPath);
+            } catch {
+                throw new Error('Não foi possível ler o arquivo da chave privada informada.');
+            }
         }
 
         // Valida a porta informada no cadastro. Como nenhum dos seus
@@ -73,13 +80,19 @@ class SftpHelper extends EventEmitter {
             host: server.host,
             port,
             username: server.username,
+            // Autenticação: chave privada quando houver; senão, a senha
+            // mantida só em memória durante a sessão (nunca persistida).
             privateKey,
+            password: !hasKeyPath && hasPassword ? server.password : undefined,
             // Se a chave tiver senha, ela deve vir do formulário
             // ou de uma variável de ambiente, nunca fixa no código.
             passphrase: server.passphrase || undefined,
             // Tempo limite de conexão, para não travar a interface
             // caso o servidor esteja fora do ar.
             readyTimeout: 10000,
+            // Verificação de identidade do servidor (TOFU/known_hosts),
+            // fornecida pelo main.js — recusa o handshake em mismatch.
+            hostVerifier,
         };
 
         await this.sftp.connect(config);

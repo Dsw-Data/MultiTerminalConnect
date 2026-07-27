@@ -36,25 +36,39 @@ export default function TerminalPanel({
   // xterm a cada tecla.
   const inputBufferRef = useRef('');
   const commandListRef = useRef([]);
+  const suggestTimerRef = useRef(null);
   const [suggestions, setSuggestions] = useState([]);
 
   useEffect(() => {
     window.api?.commands?.list().then((list) => {
       commandListRef.current = list || [];
     }).catch(() => {});
+
+    return () => clearTimeout(suggestTimerRef.current);
   }, []);
 
+  const clearSuggestions = () => {
+    clearTimeout(suggestTimerRef.current);
+    setSuggestions([]);
+  };
+
+  // Debounce de 120ms: sem ele, cada tecla digitada disparava um
+  // re-render do React no meio do caminho do eco do SSH — em rajadas
+  // de digitação isso contribuía para a sensação de atraso no terminal.
   const updateSuggestions = () => {
-    const buf = inputBufferRef.current.trim();
-    if (buf.length < 2 || commandListRef.current.length === 0) {
-      setSuggestions([]);
-      return;
-    }
-    const lower = buf.toLowerCase();
-    const matches = commandListRef.current
-      .filter((c) => c.command.toLowerCase().startsWith(lower) && c.command.toLowerCase() !== lower)
-      .slice(0, 5);
-    setSuggestions(matches);
+    clearTimeout(suggestTimerRef.current);
+    suggestTimerRef.current = setTimeout(() => {
+      const buf = inputBufferRef.current.trim();
+      if (buf.length < 2 || commandListRef.current.length === 0) {
+        setSuggestions([]);
+        return;
+      }
+      const lower = buf.toLowerCase();
+      const matches = commandListRef.current
+        .filter((c) => c.command.toLowerCase().startsWith(lower) && c.command.toLowerCase() !== lower)
+        .slice(0, 5);
+      setSuggestions(matches);
+    }, 120);
   };
 
   useEffect(() => {
@@ -127,13 +141,13 @@ export default function TerminalPanel({
         } else {
           window.api.ssh.write(sessionId, data);
         }
-        setSuggestions([]);
+        clearSuggestions();
         return;
       }
 
       if (data === '\r' || data === '\n' || isControlChar(data)) {
         inputBufferRef.current = '';
-        setSuggestions([]);
+        clearSuggestions();
         window.api.ssh.write(sessionId, data);
         return;
       }
@@ -241,6 +255,18 @@ export default function TerminalPanel({
     window.api.ssh.connect(sessionId, server, term?.cols, term?.rows);
   };
 
+  // O erro de "identidade do servidor mudou" merece uma ação própria:
+  // se o usuário sabe que a mudança é legítima (servidor reinstalado),
+  // ele apaga o registro antigo e reconecta — a chave nova é então
+  // registrada como no primeiro uso.
+  const isHostKeyMismatch = /identidade do servidor mudou/i.test(errorMsg);
+
+  const handleTrustNewKey = async () => {
+    if (!window.api?.hostkeys) return;
+    await window.api.hostkeys.forget(server.host, server.port);
+    handleReconnect();
+  };
+
   if (!server) {
     return (
       <div style={styles.placeholderContainer}>
@@ -310,24 +336,37 @@ export default function TerminalPanel({
         <div style={styles.errorBanner}>
           <AlertCircle size={16} />
           <span style={{ flex: 1 }}>Erro de Conexão: {errorMsg}</span>
+          {isHostKeyMismatch && (
+            <button
+              className="terminal-toolbar-btn"
+              onClick={handleTrustNewKey}
+              title="Apaga o registro antigo e aceita a chave atual do servidor. Só faça isso se você sabe por que a identidade mudou (ex.: servidor reinstalado)."
+            >
+              Confiar na nova chave
+            </button>
+          )}
           <button className="terminal-toolbar-btn" onClick={handleReconnect} title="Tentar reconectar">
             Reconectar
           </button>
         </div>
       )}
 
-      {suggestions.length > 0 && (
-        <div style={styles.suggestionsBar}>
-          <kbd style={styles.tabKey}>Tab</kbd>
-          <span style={styles.suggestionsHint}>completa com:</span>
-          <code style={styles.suggestionChipActive}>{suggestions[0].command}</code>
-          {suggestions.slice(1).map((s) => (
-            <code key={s.id} style={styles.suggestionChip}>{s.command}</code>
-          ))}
-        </div>
-      )}
-
-      <div ref={terminalRef} style={styles.terminalEl} />
+      {/* A barra de sugestões é um overlay absoluto sobre o topo do
+          terminal: aparecer/sumir não muda o tamanho do terminal (sem
+          reflow/refit do xterm a cada tecla — era fonte de lag). */}
+      <div style={styles.terminalWrap}>
+        {suggestions.length > 0 && (
+          <div style={styles.suggestionsBar}>
+            <kbd style={styles.tabKey}>Tab</kbd>
+            <span style={styles.suggestionsHint}>completa com:</span>
+            <code style={styles.suggestionChipActive}>{suggestions[0].command}</code>
+            {suggestions.slice(1).map((s) => (
+              <code key={s.id} style={styles.suggestionChip}>{s.command}</code>
+            ))}
+          </div>
+        )}
+        <div ref={terminalRef} style={styles.terminalEl} />
+      </div>
 
       {showLibrary && (
         <CommandLibraryModal
@@ -406,16 +445,27 @@ const styles = {
     padding: '10px',
     overflow: 'hidden'
   },
+  terminalWrap: {
+    position: 'relative',
+    flex: 1,
+    minHeight: 0,
+    display: 'flex',
+    flexDirection: 'column',
+  },
   suggestionsBar: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    zIndex: 10,
     display: 'flex',
     alignItems: 'center',
     gap: '0.5rem',
     padding: '0.45rem 0.85rem',
-    backgroundColor: 'rgba(99, 102, 241, 0.12)',
+    backgroundColor: 'rgba(18, 24, 36, 0.95)',
     borderBottom: '1px solid rgba(99, 102, 241, 0.35)',
     overflowX: 'auto',
     whiteSpace: 'nowrap',
-    flexShrink: 0,
   },
   tabKey: {
     fontSize: '0.7rem',

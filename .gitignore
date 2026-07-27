@@ -6,6 +6,7 @@ dist/
 # contêm IPs reais, portas, usuários e caminhos de chave.
 servers.json
 scripts.json
+known_hosts.json
 
 # Logs locais (registram host/porta/usuário de cada conexão)
 *.log

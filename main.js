@@ -20,8 +20,58 @@ const {
   saveScript,
   deleteScript,
 } = require('./src/storage/scriptStore');
+const { verifyHostKey, forgetHost } = require('./src/storage/hostKeyStore');
+
+// ------------------------------------------------------------
+// Monta o callback hostVerifier usado pelo ssh2 (e repassado ao
+// ssh2-sftp-client): valida a identidade do servidor no modelo
+// TOFU/known_hosts. Devolver false faz o ssh2 abortar o handshake.
+// ------------------------------------------------------------
+function makeHostVerifier(host, port, label) {
+  return (hostKeyBuffer) => {
+    const result = verifyHostKey(host, port, hostKeyBuffer);
+
+    if (result.status === 'new') {
+      debugLog(`Host key registrada no primeiro uso (${label}).`, {
+        host,
+        port,
+        fingerprint: result.fingerprint,
+      });
+      return true;
+    }
+
+    if (result.status === 'match') {
+      return true;
+    }
+
+    debugLog(`HOST KEY DIFERENTE DA REGISTRADA — conexão recusada (${label}).`, {
+      host,
+      port,
+      esperado: result.storedFingerprint,
+      recebido: result.fingerprint,
+    });
+    return false;
+  };
+}
+
+const HOST_KEY_MISMATCH_MESSAGE =
+  'A identidade do servidor mudou desde a última conexão (possível ataque ou servidor reinstalado). ' +
+  'Se você confia na mudança, remova o registro antigo e reconecte.';
 
 const debugLogPath = path.join(__dirname, 'debug.log');
+const MAX_LOG_SIZE = 1024 * 1024; // 1 MB
+
+// Rotação simples na inicialização: se o log passou do limite, guarda
+// uma única geração anterior (.old) e começa um arquivo novo — evita
+// crescimento sem fim.
+try {
+  const stat = fs.statSync(debugLogPath);
+  if (stat.size > MAX_LOG_SIZE) {
+    fs.renameSync(debugLogPath, `${debugLogPath}.old`);
+  }
+} catch {
+  // Log ainda não existe — nada a rotacionar.
+}
 
 function debugLog(message, data = null) {
   const details = data
@@ -33,11 +83,9 @@ function debugLog(message, data = null) {
 
   console.log(line.trim());
 
-  fs.appendFileSync(
-    debugLogPath,
-    line,
-    'utf8'
-  );
+  // Escrita assíncrona: registrar log nunca deve bloquear o processo
+  // principal (que também atende os terminais e transferências).
+  fs.appendFile(debugLogPath, line, 'utf8', () => {});
 }
 
 // Importa a lógica de conexão SSH/SFTP que fica em outro arquivo.
@@ -55,6 +103,60 @@ const {
 // Guarda a referência da janela principal para não ser
 // coletada pelo garbage collector enquanto o app estiver aberto.
 let mainWindow;
+
+// ------------------------------------------------------------
+// Instância única: abrir o app duas vezes faria dois processos
+// gravarem servers.json/scripts.json concorrentemente. A segunda
+// tentativa de abrir só traz a janela existente para frente.
+// ------------------------------------------------------------
+const gotSingleInstanceLock = app.requestSingleInstanceLock();
+if (!gotSingleInstanceLock) {
+  app.quit();
+} else {
+  app.on('second-instance', () => {
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      if (mainWindow.isMinimized()) mainWindow.restore();
+      mainWindow.focus();
+    }
+  });
+}
+
+// ------------------------------------------------------------
+// Wrappers de IPC que validam a ORIGEM de cada chamada: só a
+// webContents da nossa janela principal pode invocar handlers.
+// É a recomendação oficial do Electron — sem isso, qualquer
+// frame que porventura carregasse na janela (mesmo com CSP e
+// bloqueio de navegação como defesas anteriores) teria acesso
+// integral à API interna.
+// ------------------------------------------------------------
+function isTrustedSender(event) {
+  return (
+    mainWindow !== null &&
+    mainWindow !== undefined &&
+    !mainWindow.isDestroyed() &&
+    event.sender === mainWindow.webContents
+  );
+}
+
+function secureHandle(channel, handler) {
+  ipcMain['handle'](channel, (event, ...args) => {
+    if (!isTrustedSender(event)) {
+      debugLog('Chamada IPC recusada: origem não confiável.', { channel });
+      throw new Error('Origem da chamada não autorizada.');
+    }
+    return handler(event, ...args);
+  });
+}
+
+function secureOn(channel, listener) {
+  ipcMain['on'](channel, (event, ...args) => {
+    if (!isTrustedSender(event)) {
+      debugLog('Evento IPC ignorado: origem não confiável.', { channel });
+      return;
+    }
+    listener(event, ...args);
+  });
+}
 
 // Guarda as instâncias de conexão SFTP ativas, uma por servidor,
 // para não precisar reconectar toda vez que o usuário fizer uma ação.
@@ -241,7 +343,7 @@ app.on('window-all-closed', async () => {
 // Retorna a lista de servidores salvos (lida do servers.json).
 // Chamado quando a Sidebar é carregada.
 // ------------------------------------------------------------
-ipcMain.handle('servers:list', async () => {
+secureHandle('servers:list', async () => {
   try {
     const servers = loadServers();
 
@@ -265,7 +367,7 @@ ipcMain.handle('servers:list', async () => {
 // Salva um novo servidor ou atualiza um existente.
 // Chamado quando o usuário clica no botão OK/Salvar do formulário.
 // ------------------------------------------------------------
-ipcMain.handle('servers:save', async (_event, serverData) => {
+secureHandle('servers:save', async (_event, serverData) => {
   // Não registramos a chave privada nem senhas no log.
   debugLog('Tentativa de salvar servidor.', {
     id: serverData?.id,
@@ -302,7 +404,7 @@ ipcMain.handle('servers:save', async (_event, serverData) => {
 // Exclui um servidor pelo ID.
 // Chamado quando o usuário clica no botão de excluir (lixeira).
 // ------------------------------------------------------------
-ipcMain.handle('servers:delete', async (_event, id) => {
+secureHandle('servers:delete', async (_event, id) => {
   debugLog('Tentativa de excluir servidor.', { id });
 
   try {
@@ -331,7 +433,7 @@ ipcMain.handle('servers:delete', async (_event, id) => {
 // dois cadastros podem apontar para o mesmo host em portas
 // diferentes, e usar o host como chave misturaria as conexões).
 // ------------------------------------------------------------
-ipcMain.handle('sftp:connect', async (_event, server) => {
+secureHandle('sftp:connect', async (_event, server) => {
   if (!server || typeof server !== 'object' || typeof server.id !== 'string' || !server.id) {
     return { success: false, error: 'Servidor inválido.' };
   }
@@ -346,21 +448,20 @@ ipcMain.handle('sftp:connect', async (_event, server) => {
     }
 
     const helper = new SftpHelper();
-    await helper.connect(server);
+    await helper.connect(server, makeHostVerifier(server.host, Number(server.port) || 22, 'SFTP'));
 
-    // Encaminha os eventos de progresso da transferência
-    // para o frontend, usando o canal 'sftp:progress'.
-    helper.on('progress', (data) => {
-      mainWindow.webContents.send('sftp:progress', data);
-    });
+    // Encaminha os eventos de progresso da transferência para o
+    // frontend. O guard evita crash se uma transferência terminar
+    // exatamente enquanto a janela está sendo fechada/destruída.
+    const sendToWindow = (channel, data) => {
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        mainWindow.webContents.send(channel, data);
+      }
+    };
 
-    helper.on('done', (data) => {
-      mainWindow.webContents.send('sftp:done', data);
-    });
-
-    helper.on('error', (data) => {
-      mainWindow.webContents.send('sftp:transfer-error', data);
-    });
+    helper.on('progress', (data) => sendToWindow('sftp:progress', data));
+    helper.on('done', (data) => sendToWindow('sftp:done', data));
+    helper.on('error', (data) => sendToWindow('sftp:transfer-error', data));
 
     activeSftpConnections.set(server.id, helper);
 
@@ -389,14 +490,29 @@ ipcMain.handle('sftp:connect', async (_event, server) => {
       message: error.message,
     });
 
-    return { success: false, error: error.message };
+    const message = /verif/i.test(error.message) ? HOST_KEY_MISMATCH_MESSAGE : error.message;
+    return { success: false, error: message };
   }
+});
+
+// ------------------------------------------------------------
+// Remove o registro de host key de um servidor — usado quando o
+// usuário decide conscientemente confiar numa chave nova após um
+// aviso de mudança de identidade (ex.: servidor reinstalado).
+// ------------------------------------------------------------
+secureHandle('hostkeys:forget', async (_event, { host, port } = {}) => {
+  if (typeof host !== 'string' || !host) {
+    return { success: false, error: 'Host inválido.' };
+  }
+  const removed = forgetHost(host, Number(port) || 22);
+  debugLog('Registro de host key removido a pedido do usuário.', { host, port, removed });
+  return { success: true, removed };
 });
 
 // ------------------------------------------------------------
 // Lista o conteúdo de uma pasta remota via SFTP.
 // ------------------------------------------------------------
-ipcMain.handle('sftp:list', async (_event, { id, remotePath } = {}) => {
+secureHandle('sftp:list', async (_event, { id, remotePath } = {}) => {
   const helper = activeSftpConnections.get(id);
   if (!helper) {
     throw new Error('Conexão SFTP não encontrada. Conecte-se primeiro.');
@@ -408,7 +524,7 @@ ipcMain.handle('sftp:list', async (_event, { id, remotePath } = {}) => {
 // ------------------------------------------------------------
 // Faz upload de um arquivo da máquina local para o servidor.
 // ------------------------------------------------------------
-ipcMain.handle('sftp:upload', async (_event, { id, localPath, remotePath, transferId } = {}) => {
+secureHandle('sftp:upload', async (_event, { id, localPath, remotePath, transferId } = {}) => {
   const helper = activeSftpConnections.get(id);
   if (!helper) {
     return { success: false, error: 'Conexão SFTP não encontrada. Conecte-se primeiro.' };
@@ -429,7 +545,7 @@ ipcMain.handle('sftp:upload', async (_event, { id, localPath, remotePath, transf
 // ------------------------------------------------------------
 // Faz download de um arquivo do servidor para a máquina local.
 // ------------------------------------------------------------
-ipcMain.handle('sftp:download', async (_event, { id, remotePath, localPath, transferId } = {}) => {
+secureHandle('sftp:download', async (_event, { id, remotePath, localPath, transferId } = {}) => {
   const helper = activeSftpConnections.get(id);
   if (!helper) {
     return { success: false, error: 'Conexão SFTP não encontrada. Conecte-se primeiro.' };
@@ -451,7 +567,7 @@ ipcMain.handle('sftp:download', async (_event, { id, remotePath, localPath, tran
 // Encerra a conexão SFTP de um servidor específico.
 // Chamado quando o usuário fecha a aba daquele servidor.
 // ------------------------------------------------------------
-ipcMain.handle('sftp:disconnect', async (_event, id) => {
+secureHandle('sftp:disconnect', async (_event, id) => {
   const helper = activeSftpConnections.get(id);
   if (helper) {
     activeSftpConnections.delete(id);
@@ -466,7 +582,7 @@ ipcMain.handle('sftp:disconnect', async (_event, id) => {
 // acontece dentro de listLocalDirectory — o renderer nunca tem
 // acesso direto ao módulo 'fs'.
 // ------------------------------------------------------------
-ipcMain.handle('fs:list', async (_event, dirPath) => {
+secureHandle('fs:list', async (_event, dirPath) => {
   return listLocalDirectory(dirPath);
 });
 
@@ -478,14 +594,14 @@ ipcMain.handle('fs:list', async (_event, dirPath) => {
 // usam para pedir "copie isto pra área de transferência" quando
 // rodam dentro de uma sessão SSH remota).
 // ------------------------------------------------------------
-ipcMain.handle('clipboard:write-text', (_event, text) => {
+secureHandle('clipboard:write-text', (_event, text) => {
   if (typeof text === 'string' && text) {
     clipboard.writeText(text);
   }
   return { success: true };
 });
 
-ipcMain.handle('clipboard:write-base64', (_event, base64) => {
+secureHandle('clipboard:write-base64', (_event, base64) => {
   if (typeof base64 === 'string' && base64) {
     try {
       clipboard.writeText(Buffer.from(base64, 'base64').toString('utf8'));
@@ -502,7 +618,7 @@ ipcMain.handle('clipboard:write-base64', (_event, base64) => {
 // terminal. A interface (Sidebar/abas) esconde a própria "chrome" por
 // conta própria; aqui só cuidamos da janela do sistema operacional.
 // ------------------------------------------------------------
-ipcMain.handle('window:set-fullscreen', (_event, shouldBeFullscreen) => {
+secureHandle('window:set-fullscreen', (_event, shouldBeFullscreen) => {
   if (mainWindow) {
     mainWindow.setFullScreen(Boolean(shouldBeFullscreen));
   }
@@ -512,22 +628,22 @@ ipcMain.handle('window:set-fullscreen', (_event, shouldBeFullscreen) => {
 // ------------------------------------------------------------
 // Biblioteca de comandos (lida de biblioteca.txt na raiz).
 // ------------------------------------------------------------
-ipcMain.handle('commands:list', async () => {
+secureHandle('commands:list', async () => {
   return loadCommandLibrary();
 });
 
 // ------------------------------------------------------------
 // Scripts/macros do usuário (sequências de comandos com atalho).
 // ------------------------------------------------------------
-ipcMain.handle('scripts:list', async () => {
+secureHandle('scripts:list', async () => {
   return loadScripts();
 });
 
-ipcMain.handle('scripts:save', async (_event, scriptData) => {
+secureHandle('scripts:save', async (_event, scriptData) => {
   return saveScript(scriptData);
 });
 
-ipcMain.handle('scripts:delete', async (_event, id) => {
+secureHandle('scripts:delete', async (_event, id) => {
   return deleteScript(id);
 });
 
@@ -538,7 +654,7 @@ ipcMain.handle('scripts:delete', async (_event, id) => {
 // Em uma build empacotada (sem as ferramentas de desenvolvimento
 // disponíveis) só recarrega, sem tentar rebuildar.
 // ------------------------------------------------------------
-ipcMain.handle('app:rebuild-and-reload', async () => {
+secureHandle('app:rebuild-and-reload', async () => {
   if (!mainWindow) {
     return { success: false, error: 'Janela principal não encontrada.' };
   }
@@ -631,7 +747,7 @@ function cleanSshConnection(sessionId) {
   }
 }
 
-ipcMain.on('ssh:connect', async (event, { sessionId, server, cols, rows }) => {
+secureOn('ssh:connect', async (event, { sessionId, server, cols, rows }) => {
   cleanSshConnection(sessionId);
 
   debugLog(`Tentando conectar SSH ao servidor (Sessão: ${sessionId}).`, {
@@ -687,7 +803,10 @@ ipcMain.on('ssh:connect', async (event, { sessionId, server, cols, rows }) => {
     .on('error', (err) => {
       debugLog(`Erro no cliente SSH (Sessão: ${sessionId}).`, { error: err.message });
       if (activeSshConnections.has(sessionId)) {
-        event.reply(`ssh:status:${sessionId}`, `error:${err.message}`);
+        // Traduz o erro seco do ssh2 quando o hostVerifier recusa a
+        // chave, para o usuário entender o que houve e o que fazer.
+        const message = /verif/i.test(err.message) ? HOST_KEY_MISMATCH_MESSAGE : err.message;
+        event.reply(`ssh:status:${sessionId}`, `error:${message}`);
       }
       cleanSshConnection(sessionId);
     })
@@ -700,9 +819,10 @@ ipcMain.on('ssh:connect', async (event, { sessionId, server, cols, rows }) => {
     });
 
   try {
+    const port = Number(server.port) || 22;
     const config = {
       host: server.host,
-      port: Number(server.port) || 22,
+      port,
       username: server.username,
       readyTimeout: 20000,
       // Manda um pacote keepalive a cada 10s. Muitos provedores de nuvem
@@ -712,16 +832,36 @@ ipcMain.on('ssh:connect', async (event, { sessionId, server, cols, rows }) => {
       // vista da rede.
       keepaliveInterval: 10000,
       keepaliveCountMax: 3,
+      // Verificação de identidade do servidor (TOFU/known_hosts) —
+      // recusa o handshake se a chave do host mudou desde a última
+      // conexão (possível MITM).
+      hostVerifier: makeHostVerifier(server.host, port, 'SSH'),
     };
 
     if (server.keyPath) {
       debugLog(`Carregando chave privada para SSH (Sessão: ${sessionId}).`, { path: server.keyPath });
-      config.privateKey = require('node:fs').readFileSync(server.keyPath);
+
+      // Chaves SSH têm no máximo alguns KB. O limite impede que um
+      // renderer comprometido use este caminho para fazer o processo
+      // principal ler arquivos grandes arbitrários do disco.
+      const keyStat = fs.statSync(server.keyPath);
+      if (keyStat.size > 16 * 1024) {
+        throw new Error('O arquivo indicado como chave privada é grande demais para ser uma chave SSH.');
+      }
+
+      config.privateKey = fs.readFileSync(server.keyPath);
       if (server.passphrase) {
         config.passphrase = server.passphrase;
       }
     } else if (server.password) {
       config.password = server.password;
+    } else {
+      // Sem chave e sem senha: falha na hora com uma mensagem que
+      // explica o que fazer, em vez do genérico "All configured
+      // authentication methods failed" depois do timeout.
+      throw new Error(
+        'Nenhuma credencial disponível: configure o caminho da chave privada ou informe a senha editando o servidor (a senha vale só até fechar o app).'
+      );
     }
 
     client.connect(config);
@@ -732,21 +872,21 @@ ipcMain.on('ssh:connect', async (event, { sessionId, server, cols, rows }) => {
   }
 });
 
-ipcMain.on('ssh:write', (event, { sessionId, data }) => {
+secureOn('ssh:write', (event, { sessionId, data }) => {
   const session = activeSshConnections.get(sessionId);
   if (session && session.stream) {
     session.stream.write(data);
   }
 });
 
-ipcMain.on('ssh:resize', (event, { sessionId, cols, rows }) => {
+secureOn('ssh:resize', (event, { sessionId, cols, rows }) => {
   const session = activeSshConnections.get(sessionId);
   if (session && session.stream) {
     session.stream.setWindow(rows, cols, 0, 0);
   }
 });
 
-ipcMain.on('ssh:disconnect', (event, { sessionId }) => {
+secureOn('ssh:disconnect', (event, { sessionId }) => {
   debugLog(`Desconexão SSH solicitada manualmente (Sessão: ${sessionId}).`);
   cleanSshConnection(sessionId);
 });

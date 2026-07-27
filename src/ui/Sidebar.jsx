@@ -94,14 +94,22 @@ export default function Sidebar({
     if (window.api && window.api.saveServer) {
       try {
         const saved = await window.api.saveServer(newServer);
+
+        // O backend NUNCA persiste a senha (segurança) — o objeto salvo
+        // volta sem ela. Reanexamos a senha digitada só na cópia em
+        // memória desta sessão, para as conexões por senha funcionarem
+        // até o app ser fechado. Ao reabrir o app, será preciso digitar
+        // de novo (editando o servidor).
+        const savedForSession = password ? { ...saved, password } : saved;
+
         setServers(prev => {
           const index = prev.findIndex(s => s.id === saved.id);
           if (index >= 0) {
             const updated = [...prev];
-            updated[index] = saved;
+            updated[index] = savedForSession;
             return updated;
           } else {
-            return [...prev, saved];
+            return [...prev, savedForSession];
           }
         });
       } catch (error) {
