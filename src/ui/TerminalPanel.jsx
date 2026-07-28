@@ -2,7 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import { Terminal } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
 import '@xterm/xterm/css/xterm.css';
-import { Terminal as TerminalIcon, AlertCircle, X, ClipboardList, Wand2, Maximize2, Minimize2 } from 'lucide-react';
+import { Terminal as TerminalIcon, AlertCircle, X, ClipboardList, Wand2, Maximize2, Minimize2, ShieldCheck } from 'lucide-react';
 import CommandLibraryModal from './CommandLibraryModal';
 import ScriptsModal from './ScriptsModal';
 
@@ -26,6 +26,10 @@ export default function TerminalPanel({
   const fitAddonInstance = useRef(null);
   const [connected, setConnected] = useState(false);
   const [errorMsg, setErrorMsg] = useState('');
+  // 2FA: prompt do código de verificação pedido pelo servidor
+  // (null = nenhum pedido pendente).
+  const [otpPrompt, setOtpPrompt] = useState(null);
+  const [otpCode, setOtpCode] = useState('');
 
   const [showLibrary, setShowLibrary] = useState(false);
   const [showScripts, setShowScripts] = useState(false);
@@ -178,16 +182,26 @@ export default function TerminalPanel({
         if (status === 'connected') {
           setConnected(true);
           setErrorMsg('');
+          setOtpPrompt(null);
           term.write('\r\n*** Conectado com sucesso! ***\r\n\r\n');
         } else if (status.startsWith('error:')) {
           setConnected(false);
+          setOtpPrompt(null);
           setErrorMsg(status.replace('error:', ''));
           term.write('\r\n*** Erro na conexão: ' + status + ' ***\r\n');
         } else if (status === 'disconnected') {
           setConnected(false);
+          setOtpPrompt(null);
           setErrorMsg('Sessão encerrada pelo servidor.');
           term.write('\r\n*** Sessão encerrada pelo servidor ***\r\n');
         }
+      });
+
+      // 2FA: o servidor pediu o código de verificação durante o
+      // handshake (Google Authenticator etc.).
+      window.api.ssh.onOtp(sessionId, (data) => {
+        setOtpPrompt(data?.prompts?.[0] || 'Código de verificação:');
+        term.write('\r\n*** O servidor pediu um código de verificação (2FA) ***\r\n');
       });
     }
 
@@ -211,9 +225,20 @@ export default function TerminalPanel({
         window.api.ssh.disconnect(sessionId);
         window.api.ssh.offData(sessionId);
         window.api.ssh.offStatus(sessionId);
+        window.api.ssh.offOtp(sessionId);
       }
     };
   }, [server, sessionId]);
+
+  // Envia o código 2FA digitado de volta ao handshake em andamento.
+  const handleOtpSubmit = (e) => {
+    e.preventDefault();
+    const code = otpCode.trim();
+    if (!code || !window.api?.ssh) return;
+    window.api.ssh.sendOtp(sessionId, code);
+    setOtpPrompt(null);
+    setOtpCode('');
+  };
 
   // Insere texto no terminal ativo sem executar (o usuário revisa e
   // dá Enter). Usado pela biblioteca de comandos.
@@ -332,6 +357,27 @@ export default function TerminalPanel({
         </div>
       </div>
 
+      {otpPrompt && (
+        <form onSubmit={handleOtpSubmit} style={styles.otpBanner}>
+          <ShieldCheck size={16} color="#10b981" />
+          <span style={styles.otpPromptText}>{otpPrompt}</span>
+          <input
+            autoFocus
+            type="text"
+            inputMode="numeric"
+            autoComplete="one-time-code"
+            maxLength={10}
+            value={otpCode}
+            onChange={(e) => setOtpCode(e.target.value)}
+            placeholder="Código do autenticador"
+            style={styles.otpInput}
+          />
+          <button type="submit" className="btn-primary" style={styles.otpSubmitBtn} disabled={!otpCode.trim()}>
+            Verificar
+          </button>
+        </form>
+      )}
+
       {errorMsg && (
         <div style={styles.errorBanner}>
           <AlertCircle size={16} />
@@ -439,6 +485,33 @@ const styles = {
     display: 'flex',
     alignItems: 'center',
     gap: '0.5rem'
+  },
+  otpBanner: {
+    backgroundColor: 'rgba(16, 185, 129, 0.08)',
+    borderBottom: '1px solid rgba(16, 185, 129, 0.3)',
+    padding: '0.5rem 1rem',
+    display: 'flex',
+    alignItems: 'center',
+    gap: '0.6rem',
+  },
+  otpPromptText: {
+    fontSize: '0.82rem',
+    color: '#e5e7eb',
+    whiteSpace: 'nowrap',
+  },
+  otpInput: {
+    flex: 1,
+    maxWidth: '220px',
+    padding: '0.35rem 0.6rem',
+    fontSize: '0.85rem',
+    fontFamily: 'monospace',
+    letterSpacing: '0.15em',
+    backgroundColor: '#0a0e17',
+    border: '1px solid rgba(16, 185, 129, 0.35)',
+  },
+  otpSubmitBtn: {
+    padding: '0.35rem 0.85rem',
+    fontSize: '0.8rem',
   },
   terminalEl: {
     flex: 1,

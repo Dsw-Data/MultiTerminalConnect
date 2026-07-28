@@ -162,6 +162,10 @@ function secureOn(channel, listener) {
 // para não precisar reconectar toda vez que o usuário fizer uma ação.
 const activeSftpConnections = new Map();
 
+// Pedidos de código 2FA pendentes de conexões SFTP em andamento
+// (id do servidor -> callback que devolve a resposta ao handshake).
+const pendingSftpOtp = new Map();
+
 // ------------------------------------------------------------
 // Monta o menu nativo da janela (File/Edit/View/Window) em PT-BR.
 // ------------------------------------------------------------
@@ -448,7 +452,22 @@ secureHandle('sftp:connect', async (_event, server) => {
     }
 
     const helper = new SftpHelper();
-    await helper.connect(server, makeHostVerifier(server.host, Number(server.port) || 22, 'SFTP'));
+    try {
+      await helper.connect(
+        server,
+        makeHostVerifier(server.host, Number(server.port) || 22, 'SFTP'),
+        // 2FA: repassa o pedido de código do servidor para a interface
+        // e registra o callback que devolve a resposta ao handshake.
+        (prompts, respond) => {
+          pendingSftpOtp.set(server.id, respond);
+          if (mainWindow && !mainWindow.isDestroyed()) {
+            mainWindow.webContents.send('sftp:otp-request', { id: server.id, prompts });
+          }
+        }
+      );
+    } finally {
+      pendingSftpOtp.delete(server.id);
+    }
 
     // Encaminha os eventos de progresso da transferência para o
     // frontend. O guard evita crash se uma transferência terminar
@@ -507,6 +526,20 @@ secureHandle('hostkeys:forget', async (_event, { host, port } = {}) => {
   const removed = forgetHost(host, Number(port) || 22);
   debugLog('Registro de host key removido a pedido do usuário.', { host, port, removed });
   return { success: true, removed };
+});
+
+// ------------------------------------------------------------
+// Resposta do código 2FA digitado na interface durante uma
+// conexão SFTP em andamento.
+// ------------------------------------------------------------
+secureHandle('sftp:otp-response', async (_event, { id, code } = {}) => {
+  const respond = pendingSftpOtp.get(id);
+  if (respond) {
+    pendingSftpOtp.delete(id);
+    respond([String(code ?? '')]);
+    return { success: true };
+  }
+  return { success: false, error: 'Nenhum pedido de código pendente para este servidor.' };
 });
 
 // ------------------------------------------------------------
@@ -816,6 +849,23 @@ secureOn('ssh:connect', async (event, { sessionId, server, cols, rows }) => {
         event.reply(`ssh:status:${sessionId}`, 'disconnected');
       }
       cleanSshConnection(sessionId);
+    })
+    // Servidor pediu autenticação interativa (ex.: código do Google
+    // Authenticator via PAM). Guardamos o callback `finish` na sessão
+    // e repassamos o prompt para a interface — a resposta volta pelo
+    // canal 'ssh:otp-response'. Se o código estiver errado, o servidor
+    // emite o evento de novo e o fluxo se repete.
+    .on('keyboard-interactive', (_name, _instructions, _lang, prompts, finish) => {
+      const session = activeSshConnections.get(sessionId);
+      if (!session) {
+        finish([]);
+        return;
+      }
+      session.otpFinish = finish;
+      debugLog(`Servidor pediu código de verificação (Sessão: ${sessionId}).`);
+      event.reply(`ssh:otp:${sessionId}`, {
+        prompts: prompts.map((p) => p.prompt),
+      });
     });
 
   try {
@@ -824,7 +874,14 @@ secureOn('ssh:connect', async (event, { sessionId, server, cols, rows }) => {
       host: server.host,
       port,
       username: server.username,
-      readyTimeout: 20000,
+      // 90s (e não 20s): servidores com 2FA pedem o código do
+      // autenticador DURANTE o handshake — o usuário precisa de tempo
+      // para pegar o celular e digitar antes do timeout estourar.
+      readyTimeout: 90000,
+      // Habilita autenticação "keyboard-interactive" — é assim que o
+      // PAM do Google Authenticator pede o código de verificação
+      // (evento 'keyboard-interactive' tratado logo abaixo).
+      tryKeyboard: true,
       // Manda um pacote keepalive a cada 10s. Muitos provedores de nuvem
       // (firewall, load balancer, NAT) derrubam conexões TCP ociosas
       // silenciosamente, o que aparece pro usuário como "ECONNRESET" do
@@ -869,6 +926,19 @@ secureOn('ssh:connect', async (event, { sessionId, server, cols, rows }) => {
     debugLog(`Erro ao conectar SSH (Sessão: ${sessionId}).`, { error: error.message });
     event.reply(`ssh:status:${sessionId}`, `error:${error.message}`);
     cleanSshConnection(sessionId);
+  }
+});
+
+secureOn('ssh:otp-response', (_event, { sessionId, code }) => {
+  const session = activeSshConnections.get(sessionId);
+  if (session && typeof session.otpFinish === 'function') {
+    const finish = session.otpFinish;
+    session.otpFinish = null;
+    try {
+      finish([String(code ?? '')]);
+    } catch {
+      // Conexão pode ter caído entre o prompt e a resposta — ignora.
+    }
   }
 });
 

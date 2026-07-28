@@ -1,5 +1,5 @@
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
-import { Folder, File, ArrowUp, Download, Upload, RefreshCw, HardDrive, Globe, AlertCircle, Loader, Search, X } from 'lucide-react';
+import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
+import { Folder, File, ArrowUp, Download, Upload, RefreshCw, HardDrive, Globe, AlertCircle, Loader, Search, X, ShieldCheck } from 'lucide-react';
 
 function joinLocalPath(basePath, name) {
   const separator = basePath.includes('\\') && !basePath.includes('/') ? '\\' : '/';
@@ -80,6 +80,35 @@ export default function SftpPanel({ server, onAddTransfer, onUpdateTransfer, act
   const [sftpConnected, setSftpConnected] = useState(false);
   const [connectingSftp, setConnectingSftp] = useState(false);
   const [sftpError, setSftpError] = useState('');
+
+  // 2FA: prompt de código de verificação pedido pelo servidor durante
+  // a conexão SFTP. serverRef permite ao listener global (registrado
+  // uma vez) saber qual é o servidor atual sem se re-registrar.
+  const [otpPrompt, setOtpPrompt] = useState(null);
+  const [otpCode, setOtpCode] = useState('');
+  const serverRef = useRef(server);
+  serverRef.current = server;
+
+  useEffect(() => {
+    if (!window.api?.sftp?.onOtpRequest) return;
+
+    window.api.sftp.onOtpRequest((data) => {
+      if (serverRef.current && data?.id === serverRef.current.id) {
+        setOtpPrompt(data?.prompts?.[0] || 'Código de verificação:');
+      }
+    });
+
+    return () => window.api.sftp.offOtpRequest();
+  }, []);
+
+  const handleOtpSubmit = async (e) => {
+    e.preventDefault();
+    const code = otpCode.trim();
+    if (!code || !server || !window.api?.sftp) return;
+    setOtpPrompt(null);
+    setOtpCode('');
+    await window.api.sftp.sendOtp(server.id, code);
+  };
 
   const [selectedLocal, setSelectedLocal] = useState(null);
   const [selectedRemote, setSelectedRemote] = useState(null);
@@ -203,7 +232,10 @@ export default function SftpPanel({ server, onAddTransfer, onUpdateTransfer, act
         const initialPath = result.homePath || server.remotePath || '/';
         await loadRemoteDirectory(initialPath, server.id);
       } finally {
-        if (!cancelled) setConnectingSftp(false);
+        if (!cancelled) {
+          setConnectingSftp(false);
+          setOtpPrompt(null);
+        }
       }
     })();
 
@@ -467,6 +499,27 @@ export default function SftpPanel({ server, onAddTransfer, onUpdateTransfer, act
           )}
         </div>
 
+        {otpPrompt && (
+          <form onSubmit={handleOtpSubmit} style={styles.otpBanner}>
+            <ShieldCheck size={14} color="#10b981" />
+            <span style={styles.otpPromptText}>{otpPrompt}</span>
+            <input
+              autoFocus
+              type="text"
+              inputMode="numeric"
+              autoComplete="one-time-code"
+              maxLength={10}
+              value={otpCode}
+              onChange={(e) => setOtpCode(e.target.value)}
+              placeholder="Código do autenticador"
+              style={styles.otpInput}
+            />
+            <button type="submit" className="btn-primary" style={styles.otpSubmitBtn} disabled={!otpCode.trim()}>
+              Verificar
+            </button>
+          </form>
+        )}
+
         {(sftpError || remoteError) && (
           <div style={styles.errorBanner}>
             <AlertCircle size={14} />
@@ -610,6 +663,33 @@ const styles = {
     backgroundColor: 'rgba(239, 68, 68, 0.1)',
     borderBottom: '1px solid rgba(239, 68, 68, 0.2)',
     color: '#ef4444',
+    fontSize: '0.75rem',
+  },
+  otpBanner: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '0.5rem',
+    padding: '0.5rem 0.75rem',
+    backgroundColor: 'rgba(16, 185, 129, 0.08)',
+    borderBottom: '1px solid rgba(16, 185, 129, 0.3)',
+  },
+  otpPromptText: {
+    fontSize: '0.75rem',
+    color: '#e5e7eb',
+    whiteSpace: 'nowrap',
+  },
+  otpInput: {
+    flex: 1,
+    minWidth: 0,
+    padding: '0.3rem 0.5rem',
+    fontSize: '0.8rem',
+    fontFamily: 'monospace',
+    letterSpacing: '0.15em',
+    backgroundColor: '#0a0e17',
+    border: '1px solid rgba(16, 185, 129, 0.35)',
+  },
+  otpSubmitBtn: {
+    padding: '0.3rem 0.7rem',
     fontSize: '0.75rem',
   },
   columnHeader: {

@@ -33,7 +33,7 @@ class SftpHelper extends EventEmitter {
     //
     // server = { host, port, username, keyPath, passphrase? }
     // ----------------------------------------------------------
-    async connect(server, hostVerifier) {
+    async connect(server, hostVerifier, onKeyboardInteractive) {
         if (!server || typeof server !== 'object') {
             throw new Error('Dados do servidor inválidos.');
         }
@@ -87,15 +87,44 @@ class SftpHelper extends EventEmitter {
             // Se a chave tiver senha, ela deve vir do formulário
             // ou de uma variável de ambiente, nunca fixa no código.
             passphrase: server.passphrase || undefined,
-            // Tempo limite de conexão, para não travar a interface
-            // caso o servidor esteja fora do ar.
-            readyTimeout: 10000,
+            // 90s (e não 10s): servidores com 2FA pedem o código do
+            // autenticador durante o handshake — o usuário precisa de
+            // tempo para digitar antes do timeout.
+            readyTimeout: 90000,
             // Verificação de identidade do servidor (TOFU/known_hosts),
             // fornecida pelo main.js — recusa o handshake em mismatch.
             hostVerifier,
         };
 
-        await this.sftp.connect(config);
+        // Suporte a 2FA (Google Authenticator via PAM): o ssh2 emite
+        // 'keyboard-interactive' no cliente subjacente; repassamos os
+        // prompts para o main.js, que pergunta o código à interface e
+        // devolve a resposta pelo callback `respond`.
+        let kbdHandler = null;
+        if (typeof onKeyboardInteractive === 'function') {
+            config.tryKeyboard = true;
+            kbdHandler = (_name, _instructions, _lang, prompts, finish) => {
+                onKeyboardInteractive(
+                    prompts.map((p) => p.prompt),
+                    (answers) => {
+                        try {
+                            finish(answers);
+                        } catch {
+                            // Conexão pode ter caído no meio — ignora.
+                        }
+                    }
+                );
+            };
+            this.sftp.client.on('keyboard-interactive', kbdHandler);
+        }
+
+        try {
+            await this.sftp.connect(config);
+        } finally {
+            if (kbdHandler) {
+                this.sftp.client.removeListener('keyboard-interactive', kbdHandler);
+            }
+        }
         this.isConnected = true;
         this.emit('connected', {
             host: server.host,

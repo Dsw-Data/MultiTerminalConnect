@@ -115,6 +115,13 @@ contextBridge.exposeInMainWorld('api', {
     // ------------------------------------------------------
     // EVENTOS EM TEMPO REAL (progresso das transferências)
     // ------------------------------------------------------
+    // 2FA: o servidor pediu um código de verificação durante a conexão.
+    onOtpRequest: (callback) => {
+      ipcRenderer.on('sftp:otp-request', (_event, data) => callback(data));
+    },
+    offOtpRequest: () => ipcRenderer.removeAllListeners('sftp:otp-request'),
+    sendOtp: (id, code) => ipcRenderer.invoke('sftp:otp-response', { id, code }),
+
     onProgress: (callback) => {
       ipcRenderer.on('sftp:progress', (_event, data) => callback(data));
     },
@@ -149,5 +156,14 @@ contextBridge.exposeInMainWorld('api', {
     offStatus: (sessionId) => {
       ipcRenderer.removeAllListeners(`ssh:status:${sessionId}`);
     },
+    // 2FA: o servidor pediu um código de verificação (Google
+    // Authenticator etc.) durante o handshake desta sessão.
+    onOtp: (sessionId, callback) => {
+      ipcRenderer.on(`ssh:otp:${sessionId}`, (_event, data) => callback(data));
+    },
+    offOtp: (sessionId) => {
+      ipcRenderer.removeAllListeners(`ssh:otp:${sessionId}`);
+    },
+    sendOtp: (sessionId, code) => ipcRenderer.send('ssh:otp-response', { sessionId, code }),
   },
 });
