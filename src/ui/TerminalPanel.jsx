@@ -13,6 +13,17 @@ function isControlChar(data) {
   return data.length === 1 && data.charCodeAt(0) < 32 && data !== '\t';
 }
 
+// Desliga modos de rastreamento de mouse que possam ter ficado
+// "órfãos" no xterm.js: se um programa remoto (htop, vim, claude...)
+// ligou o modo mouse e a conexão caiu antes de ele desligar, o modo
+// persiste no terminal local (que preserva o scrollback ao
+// reconectar) — e cada movimento do mouse viraria texto despejado na
+// linha de comando da sessão nova. Escrever as sequências DECRST
+// diretamente no xterm limpa o estado local sem afetar o servidor.
+function resetStrayTerminalModes(term) {
+  term.write('\x1b[?1000l\x1b[?1002l\x1b[?1003l\x1b[?1005l\x1b[?1006l\x1b[?1015l');
+}
+
 export default function TerminalPanel({
   sessionId,
   server,
@@ -183,6 +194,7 @@ export default function TerminalPanel({
           setConnected(true);
           setErrorMsg('');
           setOtpPrompt(null);
+          resetStrayTerminalModes(term);
           term.write('\r\n*** Conectado com sucesso! ***\r\n\r\n');
         } else if (status.startsWith('error:')) {
           setConnected(false);
@@ -276,7 +288,10 @@ export default function TerminalPanel({
     if (!window.api?.ssh) return;
     setErrorMsg('');
     const term = xtermInstance.current;
-    term?.write('\r\n*** Reconectando... ***\r\n');
+    if (term) {
+      resetStrayTerminalModes(term);
+      term.write('\r\n*** Reconectando... ***\r\n');
+    }
     window.api.ssh.connect(sessionId, server, term?.cols, term?.rows);
   };
 
