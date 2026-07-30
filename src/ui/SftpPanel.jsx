@@ -202,6 +202,46 @@ export default function SftpPanel({ server, onAddTransfer, onUpdateTransfer, act
     }
   }, []);
 
+  // Token de conexão: invalidado a cada nova tentativa (manual ou por
+  // troca de servidor), pra uma resposta atrasada de uma tentativa
+  // antiga nunca sobrescrever o estado de uma tentativa mais nova.
+  const connectTokenRef = useRef(0);
+
+  // Extraído do useEffect para poder ser chamado de novo manualmente
+  // pelo botão "Tentar novamente" — sem isso, errar o código 2FA
+  // exigia sair e voltar pro servidor só pra reabrir o prompt.
+  const connectSftp = useCallback(async () => {
+    if (!server || !window.api?.sftp) return;
+    const token = ++connectTokenRef.current;
+
+    setConnectingSftp(true);
+    setSftpError('');
+    setSftpConnected(false);
+    setOtpPrompt(null);
+
+    try {
+      const result = await window.api.sftp.connect(server);
+      if (connectTokenRef.current !== token) return;
+
+      if (!result.success) {
+        setSftpError(result.error || 'Falha ao conectar via SFTP.');
+        return;
+      }
+
+      setSftpConnected(true);
+      // O main.js já resolve a pasta home real do usuário quando o
+      // cadastro não define uma pasta remota específica (em vez de
+      // abrir sempre em "/").
+      const initialPath = result.homePath || server.remotePath || '/';
+      await loadRemoteDirectory(initialPath, server.id);
+    } finally {
+      if (connectTokenRef.current === token) {
+        setConnectingSftp(false);
+        setOtpPrompt(null);
+      }
+    }
+  }, [server, loadRemoteDirectory]);
+
   useEffect(() => {
     if (!server || !window.api?.sftp) {
       setSftpConnected(false);
@@ -209,38 +249,10 @@ export default function SftpPanel({ server, onAddTransfer, onUpdateTransfer, act
       return;
     }
 
-    let cancelled = false;
-
-    (async () => {
-      setConnectingSftp(true);
-      setSftpError('');
-      setSftpConnected(false);
-
-      try {
-        const result = await window.api.sftp.connect(server);
-        if (cancelled) return;
-
-        if (!result.success) {
-          setSftpError(result.error || 'Falha ao conectar via SFTP.');
-          return;
-        }
-
-        setSftpConnected(true);
-        // O main.js já resolve a pasta home real do usuário quando o
-        // cadastro não define uma pasta remota específica (em vez de
-        // abrir sempre em "/").
-        const initialPath = result.homePath || server.remotePath || '/';
-        await loadRemoteDirectory(initialPath, server.id);
-      } finally {
-        if (!cancelled) {
-          setConnectingSftp(false);
-          setOtpPrompt(null);
-        }
-      }
-    })();
+    connectSftp();
 
     return () => {
-      cancelled = true;
+      connectTokenRef.current += 1; // invalida qualquer resposta pendente
       window.api.sftp.disconnect(server.id);
       setSftpConnected(false);
     };
@@ -523,7 +535,17 @@ export default function SftpPanel({ server, onAddTransfer, onUpdateTransfer, act
         {(sftpError || remoteError) && (
           <div style={styles.errorBanner}>
             <AlertCircle size={14} />
-            <span>{sftpError || remoteError}</span>
+            <span style={{ flex: 1 }}>{sftpError || remoteError}</span>
+            {sftpError && (
+              <button
+                className="terminal-toolbar-btn"
+                onClick={connectSftp}
+                disabled={connectingSftp}
+                title="Tentar conectar de novo (ex.: se errou o código de verificação)"
+              >
+                Tentar novamente
+              </button>
+            )}
           </div>
         )}
 
