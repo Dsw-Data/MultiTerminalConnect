@@ -48,6 +48,13 @@ contextBridge.exposeInMainWorld('api', {
   // ----------------------------------------------------------
   window: {
     setFullScreen: (flag) => ipcRenderer.invoke('window:set-fullscreen', flag),
+    // Avisa quando a transição REAL do SO pra tela cheia (ou de volta)
+    // termina — diferente de disparar no clique do botão, que é antes
+    // da janela terminar de esticar de verdade.
+    onFullscreenChanged: (callback) => {
+      ipcRenderer.on('window:fullscreen-changed', (_event, isFullscreen) => callback(isFullscreen));
+    },
+    offFullscreenChanged: () => ipcRenderer.removeAllListeners('window:fullscreen-changed'),
   },
 
   // ----------------------------------------------------------

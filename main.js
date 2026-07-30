@@ -283,6 +283,23 @@ function createMainWindow() {
     }
   });
 
+  // A transição real do SO para tela cheia (ou de volta) não é
+  // instantânea — o clique no botão dispara `setFullScreen()`, mas o
+  // Windows ainda leva um instante pra realmente esticar a janela.
+  // Avisamos a interface só quando a transição TERMINA de verdade, pra
+  // ela recalcular o tamanho do terminal (fitAddon.fit() + resize do
+  // PTY) com as dimensões finais — sem isso, o terminal travava num
+  // tamanho de colunas calculado cedo demais, mais estreito que a tela
+  // cheia real (sintoma: texto não usa a largura toda, e ferramentas
+  // que redesenham várias linhas, como o "claude", parecem sobrepor
+  // texto por acharem a tela mais estreita do que ela é).
+  mainWindow.on('enter-full-screen', () => {
+    mainWindow.webContents.send('window:fullscreen-changed', true);
+  });
+  mainWindow.on('leave-full-screen', () => {
+    mainWindow.webContents.send('window:fullscreen-changed', false);
+  });
+
   // Libera a referência quando a janela for fechada.
   mainWindow.on('closed', () => {
     mainWindow = null;

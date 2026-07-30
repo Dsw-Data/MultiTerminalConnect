@@ -126,10 +126,33 @@ function App() {
 
   // Esconder/mostrar sidebar e barra de abas muda drasticamente o
   // tamanho disponível pro terminal — avisa o xterm.js pra recalcular.
+  // Esse disparo imediato é só um primeiro palpite (a transição real do
+  // SO pra tela cheia ainda não terminou nesse momento); o disparo que
+  // importa de verdade vem do listener abaixo, sincronizado com o fim
+  // real da transição.
   useEffect(() => {
     const raf = requestAnimationFrame(() => window.dispatchEvent(new Event('resize')));
     return () => cancelAnimationFrame(raf);
   }, [fullscreenSessionId]);
+
+  // A transição do Windows pra tela cheia (ou de volta) não é
+  // instantânea — recalcular o tamanho do terminal cedo demais (antes
+  // dela terminar) trava o xterm.js num nº de colunas mais estreito que
+  // a tela cheia real. Sintomas: texto não usa a largura toda, e
+  // ferramentas que redesenham várias linhas (como o "claude") parecem
+  // sobrepor texto, porque redesenham achando a tela mais estreita do
+  // que ela é de verdade.
+  useEffect(() => {
+    if (!window.api?.window?.onFullscreenChanged) return;
+
+    window.api.window.onFullscreenChanged(() => {
+      // Um quadro de folga para o layout já ter se ajustado ao tamanho
+      // final da janela antes do fitAddon.fit() medir o container.
+      requestAnimationFrame(() => window.dispatchEvent(new Event('resize')));
+    });
+
+    return () => window.api.window.offFullscreenChanged();
+  }, []);
 
   // Esc sai da tela cheia do terminal, igual ao comportamento padrão de
   // um navegador em fullscreen.
