@@ -101,9 +101,11 @@ class SftpHelper extends EventEmitter {
         // prompts para o main.js, que pergunta o código à interface e
         // devolve a resposta pelo callback `respond`.
         let kbdHandler = null;
+        let sawKeyboardPrompt = false;
         if (typeof onKeyboardInteractive === 'function') {
             config.tryKeyboard = true;
             kbdHandler = (_name, _instructions, _lang, prompts, finish) => {
+                sawKeyboardPrompt = true;
                 onKeyboardInteractive(
                     prompts.map((p) => p.prompt),
                     (answers) => {
@@ -118,12 +120,38 @@ class SftpHelper extends EventEmitter {
             this.sftp.client.on('keyboard-interactive', kbdHandler);
         }
 
+        // Diagnóstico: a lib ssh2-sftp-client embrulha qualquer 'error'/'end'
+        // do socket numa mensagem genérica ("getConnection: Unexpected end
+        // event"), escondendo o motivo real do lado do servidor (limite de
+        // conexões simultâneas, PAM recusando, timeout do handshake etc.).
+        // Capturamos o evento cru aqui para anexar como detalhe no erro.
+        let rawErrorDetail = '';
+        const captureRawError = (err) => {
+            rawErrorDetail = err?.message || String(err);
+        };
+        this.sftp.client.on('error', captureRawError);
+
         try {
             await this.sftp.connect(config);
+        } catch (error) {
+            if (!sawKeyboardPrompt && onKeyboardInteractive) {
+                // A conexão caiu antes mesmo do servidor pedir o código —
+                // não é o usuário digitando errado, é a conexão em si que
+                // não chegou lá (limite de sessões simultâneas do servidor,
+                // fail2ban, LoginGraceTime, etc.).
+                const detail = rawErrorDetail ? ` (${rawErrorDetail})` : '';
+                throw new Error(
+                    `A conexão foi encerrada pelo servidor antes de pedir o código de verificação${detail}. ` +
+                    'Costuma acontecer quando já existe outra conexão SSH em autenticação ao mesmo tempo ' +
+                    '(ex.: o terminal desta mesma aba/servidor) — tente novamente após o terminal já estar conectado.'
+                );
+            }
+            throw error;
         } finally {
             if (kbdHandler) {
                 this.sftp.client.removeListener('keyboard-interactive', kbdHandler);
             }
+            this.sftp.client.removeListener('error', captureRawError);
         }
         this.isConnected = true;
         this.emit('connected', {
